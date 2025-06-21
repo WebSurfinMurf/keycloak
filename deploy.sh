@@ -5,12 +5,28 @@ set -euo pipefail
 #AI: source project-specific env after pipeline.env loads
 source "$(dirname "$0")/../secrets/keycloak.env"
 
-# ── Docker settings ──────────────────────────────────────────
+# ── Infra provisioning ───────────────────────────────────────
 NETWORK="keycloak-net"
-PG_CONTAINER="keycloak-postgres"
-KC_CONTAINER="keycloak"
 PG_VOLUME="keycloak_pg_data"
 KC_VOLUME="keycloak_data"
+
+# ensure network exists
+if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
+  echo "Creating network ${NETWORK}…"
+  docker network create "${NETWORK}"
+fi
+
+# ensure Postgres and Keycloak volumes exist
+for vol in "${PG_VOLUME}" "${KC_VOLUME}"; do
+  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
+    echo "Creating volume ${vol}…"
+    docker volume create "${vol}"
+  fi
+done
+
+# ── Docker settings ──────────────────────────────────────────
+PG_CONTAINER="keycloak-postgres"
+KC_CONTAINER="keycloak"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
 HTTP_PORT=8080
