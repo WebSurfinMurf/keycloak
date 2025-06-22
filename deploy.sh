@@ -29,7 +29,7 @@ PG_CONTAINER="keycloak-postgres"
 KC_CONTAINER="keycloak"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
-HTTP_PORT=8080
+HTTP_PORT=8887
 
 # ── Tear down old instances ──────────────────────────────────
 for name in "$KC_CONTAINER" "$PG_CONTAINER"; do
