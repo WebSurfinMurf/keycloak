@@ -1,9 +1,3 @@
-Here’s the revised `deploy.sh` with:
-
-* **Postgres**: only `run` (or `start`) if the container isn’t already running
-* **Keycloak**: always removes any existing container and re-creates it
-
-```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -22,7 +16,7 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
   docker network create "${NETWORK}"
 fi
 
-# ensure Postgres and Keycloak volumes exist
+# ensure volumes exist
 for vol in "${PG_VOLUME}" "${KC_VOLUME}"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
@@ -37,11 +31,11 @@ PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
 HTTP_PORT=8887
 
-# ── Postgres: if not running, create or start ────────────────
+# ── Postgres: only create/start if not already running ────────
 if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
-  echo "Postgres container '${PG_CONTAINER}' is already running → skipping"
+  echo "Postgres '${PG_CONTAINER}' is already running → skipping"
 elif docker ps -a --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
-  echo "Postgres container '${PG_CONTAINER}' exists but is stopped → starting"
+  echo "Postgres '${PG_CONTAINER}' exists but is stopped → starting"
   docker start "${PG_CONTAINER}"
 else
   echo "Starting Postgres (${PG_IMAGE})…"
@@ -80,4 +74,3 @@ docker run -d \
 echo
 echo "✔️ All set! Keycloak is live on port ${HTTP_PORT}:"
 echo "   http://$(hostname -I | awk '{print $1}'):${HTTP_PORT}/"
-```
