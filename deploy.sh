@@ -1,3 +1,9 @@
+Here’s the revised `deploy.sh` with:
+
+* **Postgres**: only `run` (or `start`) if the container isn’t already running
+* **Keycloak**: always removes any existing container and re-creates it
+
+```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -31,27 +37,31 @@ PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
 HTTP_PORT=8887
 
-# ── Tear down old instances ──────────────────────────────────
-for name in "$KC_CONTAINER" "$PG_CONTAINER"; do
-  if docker ps -a --format '{{.Names}}' | grep -q "^${name}$"; then
-    echo "Removing existing container ${name}…"
-    docker rm -f "${name}"
-  fi
-done
+# ── Postgres: if not running, create or start ────────────────
+if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
+  echo "Postgres container '${PG_CONTAINER}' is already running → skipping"
+elif docker ps -a --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
+  echo "Postgres container '${PG_CONTAINER}' exists but is stopped → starting"
+  docker start "${PG_CONTAINER}"
+else
+  echo "Starting Postgres (${PG_IMAGE})…"
+  docker run -d \
+    --name "${PG_CONTAINER}" \
+    --network "${NETWORK}" \
+    --restart unless-stopped \
+    -v "${PG_VOLUME}":/var/lib/postgresql/data \
+    -e POSTGRES_DB="${POSTGRES_DB}" \
+    -e POSTGRES_USER="${POSTGRES_USER}" \
+    -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+    "${PG_IMAGE}"
+fi
 
-# ── Run Postgres ─────────────────────────────────────────────
-echo "Starting Postgres (${PG_IMAGE})…"
-docker run -d \
-  --name "${PG_CONTAINER}" \
-  --network "${NETWORK}" \
-  --restart unless-stopped \
-  -v "${PG_VOLUME}":/var/lib/postgresql/data \
-  -e POSTGRES_DB="${POSTGRES_DB}" \
-  -e POSTGRES_USER="${POSTGRES_USER}" \
-  -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
-  "${PG_IMAGE}"
+# ── Keycloak: always remove & re-deploy ───────────────────────
+if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
+  echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
+  docker rm -f "${KC_CONTAINER}"
+fi
 
-# ── Run Keycloak ─────────────────────────────────────────────
 echo "Starting Keycloak (${KC_IMAGE})…"
 docker run -d \
   --name "${KC_CONTAINER}" \
@@ -70,3 +80,4 @@ docker run -d \
 echo
 echo "✔️ All set! Keycloak is live on port ${HTTP_PORT}:"
 echo "   http://$(hostname -I | awk '{print $1}'):${HTTP_PORT}/"
+```
