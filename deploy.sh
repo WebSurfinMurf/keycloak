@@ -63,15 +63,16 @@ docker run -d \
   --restart unless-stopped \
   -p "${HTTP_PORT}:8080" \
   -v "${KC_VOLUME}":/opt/keycloak/data \
-  -e KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN}" \
-  -e KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_DB=postgres \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   "${KC_IMAGE}" start \
     --http-enabled=true \
-    --hostname-strict=false
+    --hostname-strict=false \
+    --optimized
 
 echo
 echo "✔️ All set! Keycloak is live on HTTP port ${HTTP_PORT}:"
