@@ -56,7 +56,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak (${KC_IMAGE})…"
+echo "Starting Keycloak (${KC_IMAGE}) in HTTP-only mode…"
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -69,8 +69,10 @@ docker run -d \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  "${KC_IMAGE}" start
+  "${KC_IMAGE}" start \
+    --http-enabled \
+    --hostname-strict=false
 
 echo
-echo "✔️ All set! Keycloak is live on port ${HTTP_PORT}:"
+echo "✔️ All set! Keycloak is live on HTTP port ${HTTP_PORT}:"
 echo "   http://$(hostname -I | awk '{print $1}'):${HTTP_PORT}/"
