@@ -70,7 +70,7 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   "${KC_IMAGE}" start \
-    --http-enabled \
+    --http-enabled=true \
     --hostname-strict=false
 
 echo
