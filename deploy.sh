@@ -9,7 +9,8 @@ set -euo pipefail
 #   This script uses the community-recommended solution for mixed-content
 #   errors. It configures a Traefik middleware to explicitly set the
 #   X-Forwarded-Proto header, which is the standard way to inform a backend
-#   application that it is behind a secure reverse proxy.
+#   application that it is behind a secure reverse proxy. It also sets the
+#   required KC_HOSTNAME variable to satisfy Keycloak's startup checks.
 #
 # ==============================================================================
 
@@ -84,6 +85,7 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_PROXY=edge \
+  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
