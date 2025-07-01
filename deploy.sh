@@ -98,6 +98,7 @@ docker run -d \
   --label "traefik.http.routers.keycloak.tls.certresolver=letsencrypt" \
   --label "traefik.http.services.keycloak.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
+    --http-enabled=true \
     --hostname-strict=false
 
 echo
