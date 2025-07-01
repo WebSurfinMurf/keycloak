@@ -86,22 +86,15 @@ docker run -d \
   -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  \
-  # --- Router 1: Public HTTPS ---
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
-  \
-  # --- Router 2: Internal HTTP (will be redirected by Traefik's global redirect) ---
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
-  \
-  # --- Common Service Definition ---
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
-  \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
