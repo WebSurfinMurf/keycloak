@@ -2,13 +2,12 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script (Community-Vetted Fix)
+# Keycloak Deployment Script (HTTP-Only for Debugging)
 # ==============================================================================
 #
 # Description:
-#   This script uses the community-recommended solution for mixed-content
-#   errors. It combines the required Keycloak startup variables with a
-#   Traefik middleware that explicitly sets the X-Forwarded-Proto header.
+#   This script deploys Keycloak with the simplest possible HTTP-only
+#   configuration to test basic routing through Traefik.
 #
 # ==============================================================================
 
@@ -40,8 +39,6 @@ PG_CONTAINER="keycloak-postgres"
 KC_CONTAINER="keycloak"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
-# Define the hostnames that will be routed to Keycloak
-PUBLIC_HOSTNAME="embracenow.asuscomm.com"
 INTERNAL_HOSTNAME="keycloak.linuxserver.lan"
 
 
@@ -70,7 +67,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak (${KC_IMAGE}) with Traefik header middleware..."
+echo "Starting Keycloak (${KC_IMAGE}) with simple HTTP configuration..."
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -82,21 +79,15 @@ docker run -d \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_PROXY=edge \
-  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`, \`${INTERNAL_HOSTNAME}\`)" \
-  --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
-  --label "traefik.http.routers.keycloak-secure.tls=true" \
-  --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers@docker" \
+  --label "traefik.http.routers.keycloak-http.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-http.entrypoints=web" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
-  --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
+  --label "traefik.http.routers.keycloak-http.service=keycloak-service" \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "   Access it at: https://${PUBLIC_HOSTNAME} (or https://${INTERNAL_HOSTNAME})"
+echo "   Access it at: http://${INTERNAL_HOSTNAME}"
