@@ -83,8 +83,8 @@ docker run -d \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
-  -e KC_HOSTNAME_ADMIN="https://${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME_URL="https://${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME_ADMIN_URL="https://${PUBLIC_HOSTNAME}" \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
