@@ -86,7 +86,8 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-http.service=keycloak-service" \
   "${KC_IMAGE}" start \
-    --http-enabled=true
+    --http-enabled=true \
+    --hostname-strict=false
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
