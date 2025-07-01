@@ -83,6 +83,8 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_PROXY=edge \
+  -e KC_HTTPS_PORT=443 \
+  -e KC_HOSTNAME_STRICT_HTTPS=true \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`, \`${INTERNAL_HOSTNAME}\`)" \
@@ -92,8 +94,7 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
   "${KC_IMAGE}" start \
-    --http-enabled=true \
-    --hostname-strict=false
+    --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
