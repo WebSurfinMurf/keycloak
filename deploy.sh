@@ -6,9 +6,9 @@ set -euo pipefail
 # ==============================================================================
 #
 # Description:
-#   This script uses the community-recommended solution for mixed-content
-#   errors. It combines the required Keycloak startup variables with a
-#   Traefik middleware that explicitly sets the X-Forwarded-Proto header.
+#   This script uses a two-router setup to correctly handle both a public
+#   HTTPS domain and a private HTTP domain. It separates the certificate
+#   request to solve the "Invalid TLD" error from Let's Encrypt.
 #
 # ==============================================================================
 
@@ -70,7 +70,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak (${KC_IMAGE}) with Traefik header middleware..."
+echo "Starting Keycloak (${KC_IMAGE}) with separate routers for public and private access..."
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -86,17 +86,25 @@ docker run -d \
   -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`, \`${INTERNAL_HOSTNAME}\`)" \
+  \
+  # --- Router 1: Public HTTPS ---
+  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers@docker" \
-  --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
+  \
+  # --- Router 2: Internal HTTP (will be redirected by Traefik's global redirect) ---
+  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
+  --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
+  \
+  # --- Common Service Definition ---
+  --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
+  \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "   Access it at: https://${PUBLIC_HOSTNAME} (or https://${INTERNAL_HOSTNAME})"
+echo "   Access it at: https://${PUBLIC_HOSTNAME} (or your internal DNS name)"
