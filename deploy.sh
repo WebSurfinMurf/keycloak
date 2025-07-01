@@ -91,7 +91,6 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_HOSTNAME="${KEYCLOAK_HOSTNAME}" \
-  -e KC_PROXY=edge \
   --label "traefik.enable=true" \
   --label "traefik.http.routers.keycloak.rule=Host(\`${KEYCLOAK_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak.entrypoints=websecure" \
