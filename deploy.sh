@@ -2,13 +2,14 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script (HTTPS-Only)
+# Keycloak Deployment Script (HTTPS-Only with X-Forwarded-Proto Fix)
 # ==============================================================================
 #
 # Description:
-#   This script deploys Keycloak configured for a single, secure HTTPS endpoint
-#   managed by Traefik. It relies on Traefik's global configuration to
-#   automatically redirect all HTTP traffic to HTTPS.
+#   This script deploys Keycloak with a Traefik middleware that explicitly
+#   sets the X-Forwarded-Proto header to 'https', which is the standard and
+#   most reliable way to fix mixed-content errors when running Keycloak
+#   behind a reverse proxy.
 #
 # ==============================================================================
 
@@ -83,19 +84,26 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_PROXY=edge \
-  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
+  \
+  # --- Middleware to add the X-Forwarded-Proto header ---
+  --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
+  \
+  # --- Secure Router Definition ---
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`, \`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
+  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers" \
+  \
+  # --- Service Definition ---
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
+  \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
 echo "   Access it at: https://${PUBLIC_HOSTNAME} (or https://${INTERNAL_HOSTNAME})"
-
