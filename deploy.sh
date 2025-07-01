@@ -98,10 +98,8 @@ docker run -d \
   --label "traefik.http.routers.keycloak.tls.certresolver=letsencrypt" \
   --label "traefik.http.services.keycloak.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname-strict=false \
-    --optimized
+    --hostname-strict=false
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
 echo "   Access it at: https://${KEYCLOAK_HOSTNAME}"
-
