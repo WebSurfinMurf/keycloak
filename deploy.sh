@@ -2,14 +2,14 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script (HTTPS-Only with X-Forwarded-Proto Fix)
+# Keycloak Deployment Script (Community-Vetted Fix)
 # ==============================================================================
 #
 # Description:
-#   This script deploys Keycloak with a Traefik middleware that explicitly
-#   sets the X-Forwarded-Proto header to 'https', which is the standard and
-#   most reliable way to fix mixed-content errors when running Keycloak
-#   behind a reverse proxy.
+#   This script uses the community-recommended solution for mixed-content
+#   errors. It configures a Traefik middleware to explicitly set the
+#   X-Forwarded-Proto header, which is the standard way to inform a backend
+#   application that it is behind a secure reverse proxy.
 #
 # ==============================================================================
 
@@ -71,7 +71,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak (${KC_IMAGE}) with a single HTTPS configuration..."
+echo "Starting Keycloak (${KC_IMAGE}) with Traefik header middleware..."
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -84,7 +84,6 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_PROXY=edge \
-  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
@@ -92,7 +91,7 @@ docker run -d \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers" \
+  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers@docker" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
   "${KC_IMAGE}" start \
