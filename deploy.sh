@@ -85,14 +85,13 @@ docker run -d \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_HOSTNAME_URL="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_ADMIN_URL="https://${PUBLIC_HOSTNAME}" \
+  -e KC_PROXY=edge \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  --label "traefik.http.middlewares.keycloak-https-redirect.redirectscheme.scheme=https" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-https-redirect" \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
