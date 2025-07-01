@@ -86,21 +86,14 @@ docker run -d \
   -e KC_PROXY=edge \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  \
-  # --- Middleware to add the X-Forwarded-Proto header ---
   --label "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https" \
-  \
-  # --- Secure Router Definition ---
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`, \`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-headers" \
-  \
-  # --- Service Definition ---
   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
-  \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
