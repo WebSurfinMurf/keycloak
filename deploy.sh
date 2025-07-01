@@ -40,8 +40,8 @@ PG_CONTAINER="keycloak-postgres"
 KC_CONTAINER="keycloak"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
-# This is the primary, public-facing URL. Keycloak uses this for generating links.
-PUBLIC_HOSTNAME="EmbraceNow.asuscomm.com"
+# This is the primary, public-facing URL. Using all lowercase for consistency.
+PUBLIC_HOSTNAME="embracenow.asuscomm.com"
 # This is the internal-only URL for local access.
 INTERNAL_HOSTNAME="keycloak.linuxserver.lan"
 
@@ -104,4 +104,3 @@ echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
 echo "   Public HTTPS Access: https://${PUBLIC_HOSTNAME}"
 echo "   Internal HTTP Access: http://${INTERNAL_HOSTNAME}"
-
