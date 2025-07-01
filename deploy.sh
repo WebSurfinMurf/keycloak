@@ -86,6 +86,7 @@ docker run -d \
   -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_ADMIN="https://${PUBLIC_HOSTNAME}" \
   --label "traefik.enable=true" \
+  --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
