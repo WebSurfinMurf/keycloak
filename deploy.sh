@@ -89,6 +89,7 @@ docker run -d \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
+  --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
@@ -103,3 +104,4 @@ echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
 echo "   Public HTTPS Access: https://${PUBLIC_HOSTNAME}"
 echo "   Internal HTTP Access: http://${INTERNAL_HOSTNAME}"
+
