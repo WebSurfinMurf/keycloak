@@ -7,10 +7,8 @@ set -euo pipefail
 #
 # Description:
 #   This script uses the community-recommended solution for mixed-content
-#   errors. It configures a Traefik middleware to explicitly set the
-#   X-Forwarded-Proto header, which is the standard way to inform a backend
-#   application that it is behind a secure reverse proxy. It also sets the
-#   required KC_HOSTNAME variable to satisfy Keycloak's startup checks.
+#   errors. It combines the required Keycloak startup variables with a
+#   Traefik middleware that explicitly sets the X-Forwarded-Proto header.
 #
 # ==============================================================================
 
