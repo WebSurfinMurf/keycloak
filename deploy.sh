@@ -92,7 +92,7 @@ docker run -d \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
-  --label "traefik.http.services.keycloak-service.loadbalancer.servers.url=http://keycloak:8080" \
+  --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   "${KC_IMAGE}" start \
