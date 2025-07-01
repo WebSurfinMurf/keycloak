@@ -83,6 +83,9 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_PROXY=edge \
+  -e KC_PROXY_HEADERS=xforwarded \
+  -e KC_HOSTNAME=https://embracenow.asuscomm.com \
+  -e KC_HOSTNAME_STRICT=false
   -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
