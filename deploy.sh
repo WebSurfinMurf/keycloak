@@ -91,7 +91,7 @@ docker run -d \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-stripprefix.stripprefix.prefixes=/keycloak" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`) && PathPrefix(`/keycloak`)" \
-  -label "traefik.http.routers.keycloak-secure.middlewares=keycloak-stripprefix" \
+  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
