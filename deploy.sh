@@ -70,6 +70,8 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
+#  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
+#   --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
 echo "Starting Keycloak (${KC_IMAGE}) with separate routers for public and private access..."
 docker run -d \
   --name "${KC_CONTAINER}" \
@@ -85,7 +87,6 @@ docker run -d \
   -e KC_PROXY=edge \
   -e KC_PROXY_HEADERS=xforwarded \
   -e KC_HOSTNAME_STRICT=false \
-  -e KC_HOSTNAME=${PUBLIC_HOSTNAME} \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
@@ -96,7 +97,7 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
-  --label "traefik.http.services.keycloak-service.loadbalancer.server.url=http://keycloak:8080" \
+  --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
     --http-enabled=true
 
