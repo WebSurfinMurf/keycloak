@@ -83,7 +83,10 @@ docker run -d \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME_URL=https://${PUBLIC_HOSTNAME}/keycloak \
+  -e KC_PROXY=edge \
+  -e KC_PROXY_HEADERS=xforwarded \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_PROVIDER=forwarded \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-prefix-header.headers.customRequestHeaders.X-Forwarded-Prefix=/keycloak" \
