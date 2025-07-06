@@ -105,10 +105,7 @@ docker run -d \
   "${KC_IMAGE}" start \
     --http-enabled=true \
     --http-relative-path=/keycloak \
-    --hostname=${PUBLIC_HOSTNAME} \
-    --proxy=edge \
-    --proxy-headers=xforwarded \
-    --hostname-strict=false
+    --hostname=${PUBLIC_HOSTNAME}
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
