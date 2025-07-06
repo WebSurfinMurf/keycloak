@@ -66,12 +66,10 @@ fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
 if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
-  # Corrected the ellipsis from … to ...
   echo "Removing existing Keycloak container '${KC_CONTAINER}'..."
   docker rm -f "${KC_CONTAINER}"
 fi
 
-# Corrected the ellipsis from … to ...
 echo "Starting Keycloak (${KC_IMAGE}) with separate routers for public and private access..."
 docker run -d \
   --name "${KC_CONTAINER}" \
@@ -82,7 +80,7 @@ docker run -d \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_DB=postgres \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
-  -e KC_DB_USERNAME="${POSTGRES_USER}" \
+  -e KC_DB_USERNAME="${POSTGES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
@@ -96,11 +94,11 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
   --label "traefik.http.routers.keycloak-internal.middlewares=keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
-  --label "traefik.http.routers.keycloak-internal.service=keycloa-service" \
+  --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start-dev \
   --http-enabled=true \
-  --proxy=edge \
+  --proxy-headers=xforwarded \
   --hostname-strict=false \
   --hostname=${PUBLIC_HOSTNAME} \
   --hostname-path=/keycloak
