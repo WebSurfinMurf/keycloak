@@ -80,7 +80,7 @@ docker run -d \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_DB=postgres \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
-  -e KC_DB_USERNAME="${POSTGES_USER}" \
+  -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
