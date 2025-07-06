@@ -65,7 +65,7 @@ else
 fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
-if docker ps -a --format '{{.Names}' | grep -qx "${KC_CONTAINER}"; then
+if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
   docker rm -f "${KC_CONTAINER}"
 fi
@@ -82,6 +82,10 @@ docker run -d \
   -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
+  -e KC_PROXY=edge \
+  -e KC_PROXY_HEADERS=xforwarded \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_PATH=/keycloak \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-prefix-header.headers.customRequestHeaders.X-Forwarded-Prefix=/keycloak" \
@@ -99,12 +103,7 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
     --http-enabled=true \
-    --http-relative-path=/keycloak \
-    --hostname=${PUBLIC_HOSTNAME} \
-    --hostname-path=/keycloak \
-    --proxy=edge \
-    --proxy-headers=xforwarded \
-    --hostname-strict=false
+    --http-relative-path=/keycloak
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
