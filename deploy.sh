@@ -108,10 +108,8 @@ docker run -d \
   "${KC_IMAGE}" start \
     --http-enabled=true \
     --http-relative-path=/keycloak \
-    --hostname-path=/keycloak \
     --hostname-host=${PUBLIC_HOSTNAME} \
     --hostname-protocol=https
-
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
