@@ -110,7 +110,7 @@ docker run -d \
     --http-relative-path=/keycloak \
     --hostname-path=/keycloak \
     --hostname-host=${PUBLIC_HOSTNAME} \
-    --hostname-protocol=https 
+    --hostname-protocol=https
 
 
 echo
