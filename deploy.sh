@@ -88,6 +88,8 @@ docker run -d \
   -e KC_PROXY_HEADERS=xforwarded \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_PROVIDER=forwarded \
+  -e KC_HOSTNAME_HOST=${PUBLIC_HOSTNAME} \
+  -e KC_HOSTNAME_PROTOCOL=https \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-prefix-header.headers.customRequestHeaders.X-Forwarded-Prefix=/keycloak" \
@@ -106,7 +108,10 @@ docker run -d \
   "${KC_IMAGE}" start \
     --http-enabled=true \
     --http-relative-path=/keycloak \
-    --hostname-path=/keycloak
+    --hostname-path=/keycloak \
+    --hostname-host=${PUBLIC_HOSTNAME} \
+    --hostname-protocol=https 
+
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
