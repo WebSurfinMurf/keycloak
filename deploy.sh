@@ -7,8 +7,7 @@ set -euo pipefail
 #
 # Description:
 #   This script uses a two-router setup to correctly handle both a public
-#   HTTPS domain and a private HTTP domain. It separates the certificate
-#   request to solve the "Invalid TLD" error from Let's Encrypt.
+#   HTTPS domain and a private HTTP domain.
 #
 # ==============================================================================
 
@@ -66,7 +65,7 @@ fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
 if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
-  echo "Removing existing Keycloak container '${KC_CONTAINER}'..."
+  echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
   docker rm -f "${KC_CONTAINER}"
 fi
 
@@ -78,31 +77,28 @@ docker run -d \
   -v "${KC_VOLUME}":/opt/keycloak/data \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
-  -e KC_DB=postgres \
-  -e KC_DB_URL="jdbc:postgresql://${PG_CONTAINER}:5432/${POSTGRES_DB}" \
+  -e KC_DB="postgres" \
+  -e KC_DB_URL_HOST="keycloak-postgres" \
+  -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  --label "traefik.http.middlewares.keycloak-stripprefix.stripprefix.prefixes=/keycloak" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
-  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
   --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
-  --label "traefik.http.routers.keycloak-internal.middlewares=keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
-  "${KC_IMAGE}" start-dev \
-  --http-enabled=true \
-  --proxy-headers=xforwarded \
-  --hostname-strict=false \
-  --hostname=${PUBLIC_HOSTNAME} \
-  --http-relative-path=/keycloak
+  "${KC_IMAGE}" start \
+    --hostname=${PUBLIC_HOSTNAME} \
+    --http-relative-path=/keycloak \
+    --proxy-headers=xforwarded \
+    --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "    Access it at: https://${PUBLIC_HOSTNAME}/keycloak/ (or your internal DNS name)"
+echo "   Access it at: https://${PUBLIC_HOSTNAME}/keycloak (or your internal DNS name)"
