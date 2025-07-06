@@ -101,7 +101,7 @@ docker run -d \
   --proxy-headers=xforwarded \
   --hostname-strict=false \
   --hostname=${PUBLIC_HOSTNAME} \
-  --hostname-path=/keycloak
+  --http-relative-path=/keycloak
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
