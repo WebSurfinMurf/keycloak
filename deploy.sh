@@ -68,15 +68,11 @@ docker run -d \
   -e KC_DB="postgres" \
   -e KC_DB_URL_HOST="keycloak-postgres" \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
-  \
-  # --- Traefik Labels (Simplified for Root Access) ---
   --label "traefik.enable=true" \
   --label "traefik.http.routers.keycloak-router.rule=Host(\`${PUBLIC_HOSTNAME}\`) || Host(\`${LOCAL_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-router.entrypoints=web,websecure" \
   --label "traefik.http.routers.keycloak-router.tls.certresolver=letsencrypt" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
-  \
-  # --- Keycloak Image and Command (Simplified for Root Access) ---
   "${KC_IMAGE}" \
   start \
   --hostname=${PUBLIC_HOSTNAME} \
