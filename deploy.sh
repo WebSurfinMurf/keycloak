@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script - FINAL /keycloak Path Version (Syntax Corrected)
+# Keycloak Deployment Script - FINAL Root Access Version
 # ==============================================================================
 
 # ── Load secrets ──────────────────────────────────────────────
@@ -14,7 +14,7 @@ PG_CONTAINER="keycloak-postgres"
 NETWORK="traefik-proxy"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
 PUBLIC_HOSTNAME="embracenow.asuscomm.com"
-LOCAL_HOSTNAME="linuxserver.lan"
+LOCAL_HOSTNAME="linuxserver.lan" # Corrected to your preferred local hostname
 PG_VOLUME="keycloak_pg_data"
 KC_VOLUME="keycloak_data"
 
@@ -25,12 +25,12 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
 fi
 for vol in "${PG_VOLUME}" "${KC_VOLUME}"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
-    echo "Creating volume ${vol}…"
+    echo "Creating volume ${vol}..."
     docker volume create "${vol}"
   fi
 done
 
-# ── Postgres Container ───────────────────────────────────────
+# ── Postgres Container (No changes needed here) ──────────────
 if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
   echo "Postgres '${PG_CONTAINER}' is already running → skipping"
 elif docker ps -a --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
@@ -55,7 +55,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak at path /keycloak ..."
+echo "Starting Keycloak for root access at https://${PUBLIC_HOSTNAME} ..."
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -68,22 +68,22 @@ docker run -d \
   -e KC_DB="postgres" \
   -e KC_DB_URL_HOST="keycloak-postgres" \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
+  \
+  # --- Traefik Labels (Simplified for Root Access) ---
   --label "traefik.enable=true" \
+  --label "traefik.http.routers.keycloak-router.rule=Host(\`${PUBLIC_HOSTNAME}\`) || Host(\`${LOCAL_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-router.entrypoints=web,websecure" \
+  --label "traefik.http.routers.keycloak-router.tls.certresolver=letsencrypt" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
-  --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
-  --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-local.rule=Host(\`${LOCAL_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
-  --label "traefik.http.routers.keycloak-local.entrypoints=web" \
+  \
+  # --- Keycloak Image and Command (Simplified for Root Access) ---
   "${KC_IMAGE}" \
   start \
   --hostname=${PUBLIC_HOSTNAME} \
-  --http-relative-path=/keycloak \
   --proxy-headers=xforwarded \
   --http-enabled=true
 
 echo
-echo "✔️ Deployment complete."
-echo "Please test the following URLs:"
-echo "    Public URL: https://${PUBLIC_HOSTNAME}/keycloak"
-echo "    Local URL:  http://${LOCAL_HOSTNAME}/keycloak"
+echo "✔️ Deployment complete! Keycloak should be accessible shortly."
+echo "    Public URL: https://${PUBLIC_HOSTNAME}"
+echo "    Local URL:  http://${LOCAL_HOSTNAME}"
