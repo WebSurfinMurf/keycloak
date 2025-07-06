@@ -87,6 +87,7 @@ docker run -d \
   -e KC_PROXY_HEADERS=xforwarded \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_PROVIDER=forwarded \
+  -e KC_HOSTNAME_URL=https://${PUBLIC_HOSTNAME}/keycloak \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
   --label "traefik.http.middlewares.keycloak-prefix-header.headers.customRequestHeaders.X-Forwarded-Prefix=/keycloak" \
