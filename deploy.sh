@@ -65,7 +65,8 @@ else
 fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
-if docker ps -a --format '{{.Names}' | grep -qx "${KC_CONTAINER}"; then
+# Corrected line: Added missing '}}' to {{.Names}}
+if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
   docker rm -f "${KC_CONTAINER}"
 fi
