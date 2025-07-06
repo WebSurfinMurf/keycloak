@@ -87,19 +87,25 @@ docker run -d \
   -e KC_PROXY=edge \
   -e KC_PROXY_HEADERS=xforwarded \
   -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_PROVIDER=forwarded \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=traefik-proxy" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
+  --label "traefik.http.middlewares.keycloak-prefix-header.headers.customRequestHeaders.X-Forwarded-Prefix=/keycloak" \
+  --label "traefik.http.middlewares.keycloak-stripprefix.stripprefix.prefixes=/keycloak" \
+  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
+  --label "traefik.http.routers.keycloak-secure.middlewares=keycloak-prefix-header,keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
   --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
   --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
-  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`) && PathPrefix(\`/keycloak\`)" \
+  --label "traefik.http.routers.keycloak-internal.middlewares=keycloak-prefix-header,keycloak-stripprefix" \
   --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --http-enabled=true
+    --http-enabled=true \
+    --http-relative-path=/keycloak
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
