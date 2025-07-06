@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script - FINAL /keycloak Path Version
+# Keycloak Deployment Script - FINAL /keycloak Path Version (Syntax Corrected)
 # ==============================================================================
 
 # ── Load secrets ──────────────────────────────────────────────
@@ -50,7 +50,7 @@ else
 fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
-if docker ps -a --format '{{.Name}}' | grep -qx "${KC_CONTAINER}"; then
+if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   echo "Removing existing Keycloak container '${KC_CONTAINER}'..."
   docker rm -f "${KC_CONTAINER}"
 fi
