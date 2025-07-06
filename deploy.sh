@@ -109,4 +109,4 @@ docker run -d \
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "   Access it at: https://${PUBLIC_HOSTNAME} (or your internal DNS name)"
+echo "   Access it at: https://${PUBLIC_HOSTNAME}/keycloak/ (or your internal DNS name)"
