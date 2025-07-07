@@ -40,7 +40,7 @@ KC_CONTAINER="keycloak"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
 # Define the hostnames that will be routed to Keycloak
-PUBLIC_HOSTNAME="embracenow.asuscomm.com"
+PUBLIC_HOSTNAME="keycloak.ai-servicers.com"
 INTERNAL_HOSTNAME="keycloak.linuxserver.lan"
 
 
