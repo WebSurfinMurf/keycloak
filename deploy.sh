@@ -95,10 +95,9 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
     --hostname=${PUBLIC_HOSTNAME} \
-    --http-relative-path=/keycloak \
     --proxy-headers=xforwarded \
     --http-enabled=true
 
 echo
 echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "   Access it at: https://${PUBLIC_HOSTNAME}/keycloak (or your internal DNS name)"
+echo "   Access it at: https://${PUBLIC_HOSTNAME} (or your internal DNS name)"
