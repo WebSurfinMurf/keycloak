@@ -44,13 +44,14 @@ fi
 
 # ensure volumes exist
 for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}"; do
-  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; do
+  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
   fi
 done
 
 # ── OpenLDAP: only create/start if not already running ────────
+echo "=== Setting up OpenLDAP Server ==="
 if docker ps --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
   echo "OpenLDAP '${LDAP_CONTAINER}' is already running → skipping"
 elif docker ps -a --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
@@ -123,6 +124,7 @@ EOF"
 fi
 
 # ── Postgres: only create/start if not already running ────────
+echo "=== Setting up PostgreSQL ==="
 if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
   echo "Postgres '${PG_CONTAINER}' is already running → skipping"
 elif docker ps -a --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
@@ -139,13 +141,28 @@ else
     -e POSTGRES_USER="${POSTGRES_USER}" \
     -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
     "${PG_IMAGE}"
+  
+  echo "Waiting for PostgreSQL to initialize..."
+  sleep 10
+  
+  # Test database connectivity
+  until docker exec "${PG_CONTAINER}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"; do
+    echo "  - Waiting for PostgreSQL to be ready..."
+    sleep 2
+  done
+  echo "✔️ PostgreSQL is ready"
 fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
+echo "=== Setting up Keycloak ==="
 if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
   docker rm -f "${KC_CONTAINER}"
 fi
+
+# Wait for dependencies to be ready
+echo "Ensuring dependencies are ready..."
+sleep 5
 
 echo "Starting Keycloak with LDAP integration support..."
 docker run -d \
@@ -156,12 +173,12 @@ docker run -d \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_DB="postgres" \
-  -e KC_DB_URL_HOST="keycloak-postgres" \
+  -e KC_DB_URL_HOST="${PG_CONTAINER}" \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   --label "traefik.enable=true" \
-  --label "traefik.docker.network=traefik-proxy" \
+  --label "traefik.docker.network=${NETWORK}" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
   --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
   --label "traefik.http.routers.keycloak-secure.tls=true" \
@@ -174,7 +191,54 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname=${PUBLIC_HOSTNAME} \
+    --hostname="${PUBLIC_HOSTNAME}" \
+    --proxy-headers=xforwarded \
+    --http-enabled=true
+
+# Wait for Keycloak to be ready
+echo "Waiting for Keycloak to initialize..."
+timeout=120
+counter=0
+until curl -s -f "http://localhost:8080/health/ready" -o /dev/null 2>/dev/null || \
+      docker exec "${KC_CONTAINER}" curl -s -f "http://localhost:8080/health/ready" -o /dev/null 2>/dev/null; do
+    if [[ $counter -ge $timeout ]]; then
+        echo "❌ ERROR: Keycloak failed to start within $timeout seconds"
+        echo "Keycloak logs:"
+        docker logs "${KC_CONTAINER}" --tail 20
+        exit 1
+    fi
+    echo "  - Waiting for Keycloak to be ready... ($counter/$timeout)"
+    sleep 2
+    ((counter++))
+done
+echo "✔️ Keycloak is ready"
+docker run -d \
+  --name "${KC_CONTAINER}" \
+  --network "${NETWORK}" \
+  --restart unless-stopped \
+  -v "${KC_VOLUME}":/opt/keycloak/data \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
+  -e KC_DB="postgres" \
+  -e KC_DB_URL_HOST="${PG_CONTAINER}" \
+  -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
+  -e KC_DB_USERNAME="${POSTGRES_USER}" \
+  -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
+  --label "traefik.enable=true" \
+  --label "traefik.docker.network=${NETWORK}" \
+  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
+  --label "traefik.http.routers.keycloak-secure.tls=true" \
+  --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
+  --label "traefik.http.routers.keycloak-secure.tls.domains[0].main=ai-servicers.com" \
+  --label "traefik.http.routers.keycloak-secure.tls.domains[0].sans=*.ai-servicers.com" \
+  --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
+  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
+  --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
+  --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
+  --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
+  "${KC_IMAGE}" start \
+    --hostname="${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true
 
