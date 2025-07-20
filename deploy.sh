@@ -2,15 +2,8 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script (Final HTTPS Configuration)
+# Keycloak Deployment Script with LDAP Support
 # ==============================================================================
-#
-# Description:
-#   This script uses a two-router setup to correctly handle both a public
-#   HTTPS domain and a private HTTP domain.
-#
-# ==============================================================================
-
 
 # ── Load secrets ──────────────────────────────────────────────
 source "$(dirname "$0")/../secrets/keycloak.env"
@@ -19,6 +12,7 @@ source "$(dirname "$0")/../secrets/keycloak.env"
 NETWORK="traefik-proxy"
 PG_VOLUME="keycloak_pg_data"
 KC_VOLUME="keycloak_data"
+LDAP_VOLUME="keycloak_ldap_data"
 
 # ensure network exists
 if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
@@ -27,7 +21,7 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
 fi
 
 # ensure volumes exist
-for vol in "${PG_VOLUME}" "${KC_VOLUME}"; do
+for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
@@ -37,12 +31,61 @@ done
 # ── Docker settings ──────────────────────────────────────────
 PG_CONTAINER="keycloak-postgres"
 KC_CONTAINER="keycloak"
+LDAP_CONTAINER="keycloak-ldap"
 PG_IMAGE="postgres:15"
 KC_IMAGE="quay.io/keycloak/keycloak:latest"
-# Define the hostnames that will be routed to Keycloak
+LDAP_IMAGE="osixia/openldap:latest"
+
 PUBLIC_HOSTNAME="keycloak.ai-servicers.com"
 INTERNAL_HOSTNAME="keycloak.linuxserver.lan"
 
+# ── OpenLDAP: only create/start if not already running ────────
+if docker ps --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
+  echo "OpenLDAP '${LDAP_CONTAINER}' is already running → skipping"
+elif docker ps -a --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
+  echo "OpenLDAP '${LDAP_CONTAINER}' exists but is stopped → starting"
+  docker start "${LDAP_CONTAINER}"
+else
+  echo "Starting OpenLDAP server for Keycloak integration..."
+  docker run -d \
+    --name "${LDAP_CONTAINER}" \
+    --network "${NETWORK}" \
+    --restart unless-stopped \
+    -v "${LDAP_VOLUME}":/var/lib/ldap \
+    -v "${LDAP_VOLUME}"/config:/etc/ldap/slapd.d \
+    -e LDAP_ORGANISATION="AI Servicers" \
+    -e LDAP_DOMAIN="ai-servicers.com" \
+    -e LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:-changeme123}" \
+    -e LDAP_CONFIG_PASSWORD="${LDAP_CONFIG_PASSWORD:-changeme123}" \
+    -p 389:389 \
+    -p 636:636 \
+    "${LDAP_IMAGE}"
+  
+  # Wait for LDAP to initialize
+  echo "Waiting for LDAP to initialize..."
+  sleep 10
+  
+  # Add initial user structure
+  docker exec "${LDAP_CONTAINER}" ldapadd -x -D "cn=admin,dc=ai-servicers,dc=com" -w "${LDAP_ADMIN_PASSWORD:-changeme123}" << EOF
+dn: ou=users,dc=ai-servicers,dc=com
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=ai-servicers,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+dn: cn=mailu-admins,ou=groups,dc=ai-servicers,dc=com
+objectClass: groupOfNames
+cn: mailu-admins
+member: cn=admin,ou=users,dc=ai-servicers,dc=com
+
+dn: cn=mailu-users,ou=groups,dc=ai-servicers,dc=com
+objectClass: groupOfNames
+cn: mailu-users
+member: cn=admin,ou=users,dc=ai-servicers,dc=com
+EOF
+fi
 
 # ── Postgres: only create/start if not already running ────────
 if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
@@ -69,7 +112,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   docker rm -f "${KC_CONTAINER}"
 fi
 
-echo "Starting Keycloak (${KC_IMAGE}) with separate routers for public and private access..."
+echo "Starting Keycloak with LDAP integration support..."
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
@@ -101,5 +144,20 @@ docker run -d \
     --http-enabled=true
 
 echo
-echo "✔️ All set! Keycloak is being managed by Traefik."
-echo "   Access it at: https://${PUBLIC_HOSTNAME} (or your internal DNS name)"
+echo "✔️ Keycloak with LDAP support is ready!"
+echo "   • Keycloak Admin: https://${PUBLIC_HOSTNAME}/admin/"
+echo "   • LDAP Server: ${LDAP_CONTAINER}:389"
+echo "   • LDAP Admin DN: cn=admin,dc=ai-servicers,dc=com"
+echo ""
+echo "📋 Next Steps:"
+echo "   1. Configure LDAP User Federation in Keycloak Admin Console"
+echo "   2. Update Mailu to use LDAP authentication"
+echo "   3. Test user creation and authentication flow"
+echo ""
+echo "🔧 LDAP Configuration for Keycloak:"
+echo "   Server URL: ldap://keycloak-ldap:389"
+echo "   Bind DN: cn=admin,dc=ai-servicers,dc=com"
+echo "   Bind Password: ${LDAP_ADMIN_PASSWORD:-changeme123}"
+echo "   Users DN: ou=users,dc=ai-servicers,dc=com"
+echo "   Username LDAP Attribute: uid"
+echo "   User Object Classes: inetOrgPerson,organizationalPerson"
