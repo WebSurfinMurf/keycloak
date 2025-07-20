@@ -2,17 +2,39 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script with LDAP Support
+# Keycloak Deployment Script with LDAP Support (Environment-Driven)
 # ==============================================================================
 
 # ── Load secrets ──────────────────────────────────────────────
-source "$(dirname "$0")/../secrets/keycloak.env"
+ENV_FILE="$(dirname "$0")/../secrets/keycloak.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "❌ ERROR: Environment file not found at $ENV_FILE"
+    exit 1
+fi
+
+echo "Loading environment variables from $ENV_FILE..."
+set -o allexport
+source "$ENV_FILE"
+set +o allexport
+
+# ── Validation ──────────────────────────────────────────────
+echo "=== Validating Environment Variables ==="
+required_vars=(
+    "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD"
+    "POSTGRES_DB" "POSTGRES_USER" "POSTGRES_PASSWORD"
+    "LDAP_ADMIN_PASSWORD" "PUBLIC_HOSTNAME"
+)
+
+for var in "${required_vars[@]}"; do
+    if [[ -z "${!var:-}" ]]; then
+        echo "❌ ERROR: Required variable $var is not set"
+        exit 1
+    fi
+done
+echo "✔️ Environment validation passed"
 
 # ── Infra provisioning ───────────────────────────────────────
-NETWORK="traefik-proxy"
-PG_VOLUME="keycloak_pg_data"
-KC_VOLUME="keycloak_data"
-LDAP_VOLUME="keycloak_ldap_data"
+echo "=== Setting up infrastructure ==="
 
 # ensure network exists
 if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
@@ -22,22 +44,11 @@ fi
 
 # ensure volumes exist
 for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}"; do
-  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
+  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; do
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
   fi
 done
-
-# ── Docker settings ──────────────────────────────────────────
-PG_CONTAINER="keycloak-postgres"
-KC_CONTAINER="keycloak"
-LDAP_CONTAINER="keycloak-ldap"
-PG_IMAGE="postgres:15"
-KC_IMAGE="quay.io/keycloak/keycloak:latest"
-LDAP_IMAGE="osixia/openldap:latest"
-
-PUBLIC_HOSTNAME="keycloak.ai-servicers.com"
-INTERNAL_HOSTNAME="keycloak.linuxserver.lan"
 
 # ── OpenLDAP: only create/start if not already running ────────
 if docker ps --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
@@ -53,38 +64,62 @@ else
     --restart unless-stopped \
     -v "${LDAP_VOLUME}":/var/lib/ldap \
     -v "${LDAP_VOLUME}"/config:/etc/ldap/slapd.d \
-    -e LDAP_ORGANISATION="AI Servicers" \
-    -e LDAP_DOMAIN="ai-servicers.com" \
-    -e LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:-changeme123}" \
-    -e LDAP_CONFIG_PASSWORD="${LDAP_CONFIG_PASSWORD:-changeme123}" \
+    -e LDAP_ORGANISATION="${LDAP_ORGANISATION}" \
+    -e LDAP_DOMAIN="${LDAP_DOMAIN}" \
+    -e LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD}" \
+    -e LDAP_CONFIG_PASSWORD="${LDAP_CONFIG_PASSWORD:-$LDAP_ADMIN_PASSWORD}" \
+    -e LDAP_TLS_VERIFY_CLIENT="${LDAP_TLS_VERIFY_CLIENT:-never}" \
     -p 389:389 \
     -p 636:636 \
     "${LDAP_IMAGE}"
   
   # Wait for LDAP to initialize
   echo "Waiting for LDAP to initialize..."
-  sleep 10
+  sleep 15
   
-  # Add initial user structure
-  docker exec "${LDAP_CONTAINER}" ldapadd -x -D "cn=admin,dc=ai-servicers,dc=com" -w "${LDAP_ADMIN_PASSWORD:-changeme123}" << EOF
-dn: ou=users,dc=ai-servicers,dc=com
+  # Create initial organizational structure
+  echo "Setting up LDAP organizational structure..."
+  docker exec "${LDAP_CONTAINER}" bash -c "cat > /tmp/structure.ldif << 'EOF'
+dn: ${LDAP_USERS_DN}
 objectClass: organizationalUnit
 ou: users
 
-dn: ou=groups,dc=ai-servicers,dc=com
+dn: ${LDAP_GROUPS_DN}
 objectClass: organizationalUnit
 ou: groups
 
-dn: cn=mailu-admins,ou=groups,dc=ai-servicers,dc=com
+dn: ou=services,${LDAP_BASE_DN}
+objectClass: organizationalUnit
+ou: services
+
+dn: cn=mailu-admins,${LDAP_GROUPS_DN}
 objectClass: groupOfNames
 cn: mailu-admins
-member: cn=admin,ou=users,dc=ai-servicers,dc=com
+description: Mailu administrators group
+member: cn=admin,${LDAP_USERS_DN}
 
-dn: cn=mailu-users,ou=groups,dc=ai-servicers,dc=com
+dn: cn=mailu-users,${LDAP_GROUPS_DN}
 objectClass: groupOfNames
 cn: mailu-users
-member: cn=admin,ou=users,dc=ai-servicers,dc=com
-EOF
+description: Mailu users group
+member: cn=admin,${LDAP_USERS_DN}
+
+dn: cn=mailu,ou=services,${LDAP_BASE_DN}
+objectClass: inetOrgPerson
+cn: mailu
+sn: service
+uid: mailu
+mail: mailu@${LDAP_DOMAIN}
+userPassword: ${MAILU_LDAP_BIND_PASSWORD}
+description: Service account for Mailu integration
+EOF"
+
+  # Apply the LDAP structure
+  docker exec "${LDAP_CONTAINER}" ldapadd -x -D "cn=admin,${LDAP_BASE_DN}" -w "${LDAP_ADMIN_PASSWORD}" -f /tmp/structure.ldif || {
+    echo "⚠️  WARNING: LDAP structure creation failed (may already exist)"
+  }
+  
+  echo "✔️ LDAP server initialized successfully"
 fi
 
 # ── Postgres: only create/start if not already running ────────
@@ -144,20 +179,34 @@ docker run -d \
     --http-enabled=true
 
 echo
-echo "✔️ Keycloak with LDAP support is ready!"
-echo "   • Keycloak Admin: https://${PUBLIC_HOSTNAME}/admin/"
-echo "   • LDAP Server: ${LDAP_CONTAINER}:389"
-echo "   • LDAP Admin DN: cn=admin,dc=ai-servicers,dc=com"
+echo "🎉 Keycloak with LDAP support is ready!"
 echo ""
-echo "📋 Next Steps:"
+echo "📍 Access Points:"
+echo "   • Keycloak Admin: https://${PUBLIC_HOSTNAME}/admin/"
+echo "   • Internal Access: http://${INTERNAL_HOSTNAME}/admin/"
+echo ""
+echo "🔐 Admin Credentials:"
+echo "   • Username: ${KEYCLOAK_ADMIN}"
+echo "   • Password: ${KEYCLOAK_ADMIN_PASSWORD}"
+echo ""
+echo "🗂️  LDAP Configuration:"
+echo "   • LDAP Server: ${LDAP_CONTAINER}:389"
+echo "   • Base DN: ${LDAP_BASE_DN}"
+echo "   • Admin DN: cn=admin,${LDAP_BASE_DN}"
+echo "   • Users DN: ${LDAP_USERS_DN}"
+echo "   • Groups DN: ${LDAP_GROUPS_DN}"
+echo ""
+echo "📋 Next Steps for Mailu Integration:"
 echo "   1. Configure LDAP User Federation in Keycloak Admin Console"
-echo "   2. Update Mailu to use LDAP authentication"
+echo "   2. Update Mailu environment with LDAP settings"
 echo "   3. Test user creation and authentication flow"
 echo ""
-echo "🔧 LDAP Configuration for Keycloak:"
-echo "   Server URL: ldap://keycloak-ldap:389"
-echo "   Bind DN: cn=admin,dc=ai-servicers,dc=com"
-echo "   Bind Password: ${LDAP_ADMIN_PASSWORD:-changeme123}"
-echo "   Users DN: ou=users,dc=ai-servicers,dc=com"
-echo "   Username LDAP Attribute: uid"
-echo "   User Object Classes: inetOrgPerson,organizationalPerson"
+echo "🔧 Ready-to-use LDAP settings for Keycloak User Federation:"
+echo "   • Connection URL: ldap://${LDAP_CONTAINER}:389"
+echo "   • Bind DN: cn=admin,${LDAP_BASE_DN}"
+echo "   • Bind Credential: ${LDAP_ADMIN_PASSWORD}"
+echo "   • Users DN: ${LDAP_USERS_DN}"
+echo "   • Username LDAP Attribute: uid"
+echo "   • RDN LDAP Attribute: uid"
+echo "   • UUID LDAP Attribute: entryUUID"
+echo "   • User Object Classes: inetOrgPerson,organizationalPerson"
