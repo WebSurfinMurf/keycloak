@@ -193,7 +193,10 @@ docker run -d \
   "${KC_IMAGE}" start \
     --hostname="${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
-    --http-enabled=true
+    --http-enabled=true \
+    --db-url-database="${POSTGRES_DB}" \
+    --db-username="${POSTGRES_USER}" \
+    --db-password="${POSTGRES_PASSWORD}"
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize..."
