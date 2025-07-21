@@ -19,10 +19,23 @@ FORWARD_AUTH_SECRET=$(openssl rand -hex 16)
 echo "=== Setting up Keycloak OIDC Client for Mailu ==="
 
 # Check if Keycloak is accessible
-if ! curl -f -s "${KEYCLOAK_URL}/health" >/dev/null 2>&1; then
+echo "Testing Keycloak accessibility..."
+if ! curl -f -s -X GET "${KEYCLOAK_URL}/realms/master" >/dev/null 2>&1; then
     echo "❌ ERROR: Keycloak is not accessible at ${KEYCLOAK_URL}"
-    echo "   Please ensure Keycloak is running and accessible"
-    exit 1
+    echo "   Testing alternative endpoints..."
+    
+    # Try different endpoints with GET
+    if curl -f -s -X GET "${KEYCLOAK_URL}/admin/" >/dev/null 2>&1; then
+        echo "✔️ Admin console is accessible"
+    elif curl -f -s -X GET "${KEYCLOAK_URL}/" >/dev/null 2>&1; then
+        echo "✔️ Main page is accessible"
+    else
+        echo "   Please ensure Keycloak is running and accessible"
+        echo "   Try: curl -I ${KEYCLOAK_URL}"
+        exit 1
+    fi
+else
+    echo "✔️ Keycloak is accessible"
 fi
 
 # Get admin access token
