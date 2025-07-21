@@ -43,7 +43,7 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
 fi
 
 # ensure volumes exist
-for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}"; do
+for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}" "${LDAP_VOLUME}_config"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
@@ -64,7 +64,7 @@ else
     --network "${NETWORK}" \
     --restart unless-stopped \
     -v "${LDAP_VOLUME}":/var/lib/ldap \
-    -v "${LDAP_VOLUME}"/config:/etc/ldap/slapd.d \
+    -v "${LDAP_VOLUME}_config":/etc/ldap/slapd.d \
     -e LDAP_ORGANISATION="${LDAP_ORGANISATION}" \
     -e LDAP_DOMAIN="${LDAP_DOMAIN}" \
     -e LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD}" \
