@@ -170,6 +170,8 @@ docker run -d \
   --network "${NETWORK}" \
   --restart unless-stopped \
   -v "${KC_VOLUME}":/opt/keycloak/data \
+  -e KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN}" \
+  -e KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_DB="postgres" \
@@ -177,6 +179,10 @@ docker run -d \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
+  -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HTTP_ENABLED=true \
+  -e KC_PROXY=edge \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=${NETWORK}" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
@@ -194,9 +200,8 @@ docker run -d \
     --hostname="${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
-    --db-url-database="${POSTGRES_DB}" \
-    --db-username="${POSTGRES_USER}" \
-    --db-password="${POSTGRES_PASSWORD}"
+    --hostname-strict=false \
+    --proxy=edge
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize..."
