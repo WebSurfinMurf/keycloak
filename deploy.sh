@@ -199,8 +199,9 @@ docker run -d \
 echo "Waiting for Keycloak to initialize..."
 timeout=120
 counter=0
-until curl -s -f "http://localhost:8080/health/ready" -o /dev/null 2>/dev/null || \
-      docker exec "${KC_CONTAINER}" curl -s -f "http://localhost:8080/health/ready" -o /dev/null 2>/dev/null; do
+until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
+      docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Admin console listening" || \
+      docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Running the server in development mode"; do
     if [[ $counter -ge $timeout ]]; then
         echo "❌ ERROR: Keycloak failed to start within $timeout seconds"
         echo "Keycloak logs:"
