@@ -241,8 +241,8 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
     --features="hostname:v1" \
-    --hostname="https://${PUBLIC_HOSTNAME}" \
-    --hostname-admin="https://${PUBLIC_HOSTNAME}" \
+    --hostname="keycloak.ai-servicers.com" \
+    --hostname-admin="keycloak.ai-servicers.com" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
     --https-port=8443 \
