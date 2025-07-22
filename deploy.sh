@@ -179,12 +179,10 @@ docker run -d \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
-  -e KC_HOSTNAME_URL="https://${PUBLIC_HOSTNAME}" \
-  -e KC_HOSTNAME_ADMIN_URL="https://${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
-  -e KC_PROXY=edge \
+  -e KC_PROXY_HEADERS=xforwarded \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=${NETWORK}" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
@@ -199,13 +197,10 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname="${PUBLIC_HOSTNAME}" \
-    --hostname-url="https://${PUBLIC_HOSTNAME}" \
-    --hostname-admin-url="https://${PUBLIC_HOSTNAME}" \
+    --hostname="https://${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
-    --hostname-strict=false \
-    --proxy=edge
+    --hostname-strict=false
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize..."
