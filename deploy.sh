@@ -180,6 +180,8 @@ docker run -d \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME_URL="https://${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME_ADMIN_URL="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
   -e KC_PROXY=edge \
@@ -198,6 +200,8 @@ docker run -d \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
     --hostname="${PUBLIC_HOSTNAME}" \
+    --hostname-url="https://${PUBLIC_HOSTNAME}" \
+    --hostname-admin-url="https://${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
     --hostname-strict=false \
@@ -221,35 +225,6 @@ until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
     ((counter++))
 done
 echo "✔️ Keycloak is ready"
-docker run -d \
-  --name "${KC_CONTAINER}" \
-  --network "${NETWORK}" \
-  --restart unless-stopped \
-  -v "${KC_VOLUME}":/opt/keycloak/data \
-  -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
-  -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
-  -e KC_DB="postgres" \
-  -e KC_DB_URL_HOST="${PG_CONTAINER}" \
-  -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
-  -e KC_DB_USERNAME="${POSTGRES_USER}" \
-  -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  --label "traefik.enable=true" \
-  --label "traefik.docker.network=${NETWORK}" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
-  --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
-  --label "traefik.http.routers.keycloak-secure.tls=true" \
-  --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.tls.domains[0].main=ai-servicers.com" \
-  --label "traefik.http.routers.keycloak-secure.tls.domains[0].sans=*.ai-servicers.com" \
-  --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
-  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
-  --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
-  --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
-  --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
-  "${KC_IMAGE}" start \
-    --hostname="${PUBLIC_HOSTNAME}" \
-    --proxy-headers=xforwarded \
-    --http-enabled=true
 
 echo
 echo "🎉 Keycloak with LDAP support is ready!"
@@ -283,3 +258,12 @@ echo "   • Username LDAP Attribute: uid"
 echo "   • RDN LDAP Attribute: uid"
 echo "   • UUID LDAP Attribute: entryUUID"
 echo "   • User Object Classes: inetOrgPerson,organizationalPerson"
+echo ""
+echo "🔍 Verification Commands:"
+echo "   # Check if Keycloak is generating HTTPS URLs:"
+echo "   curl -s http://172.22.0.5:8080/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
+echo "   # Should return: https://${PUBLIC_HOSTNAME}/realms/master"
+echo ""
+echo "   # Test SSO flow:"
+echo "   # Visit: https://mailu.ai-servicers.com/sso/admin/"
+echo "   # Should redirect to: https://${PUBLIC_HOSTNAME}/realms/master/protocol/openid-connect/auth..."
