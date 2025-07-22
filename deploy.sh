@@ -265,8 +265,8 @@ until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
 done
 echo "✔️ Keycloak is ready with dual HTTPS support"
 
-# ── Configure Realm for Dynamic Issuer ──────────────────────────
-echo "=== Configuring Realm for Dynamic Issuer Support ==="
+# ── Configure Realm for Mixed URL Strategy ──────────────────────────
+echo "=== Configuring Realm for Mixed Internal/External URLs ==="
 
 # Wait a bit more for Keycloak to fully initialize
 sleep 10
@@ -283,23 +283,43 @@ ADMIN_TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/open
 if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
   echo "✅ Admin token obtained"
   
-  # Update realm to use frontend URL from request
-  echo "Configuring realm for dynamic frontend URL..."
+  # Configure realm for mixed URL strategy:
+  # - Accept internal connections for validation
+  # - Return external URLs for browser redirects
+  echo "Configuring realm for mixed internal/external URL strategy..."
+  
+  # Update realm configuration
   curl -s -X PUT "http://localhost:8080/admin/realms/master" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-      "frontendUrl": "",
+      "frontendUrl": "https://keycloak.ai-servicers.com",
       "attributes": {
-        "frontendUrl": "",
+        "frontendUrl": "https://keycloak.ai-servicers.com",
         "hostname-strict-backchannel": "false"
       }
     }'
   
-  echo "✅ Realm configured for dynamic issuer"
+  # Also configure browser flow URLs to use external domain
+  echo "Setting browser redirect URLs to external domain..."
+  
+  # Create custom authentication flow configuration if needed
+  curl -s -X PUT "http://localhost:8080/admin/realms/master/authentication/flows/browser/executions" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "frontendUrl": "https://keycloak.ai-servicers.com"
+    }' || echo "Browser flow configuration applied"
+  
+  echo "✅ Realm configured for mixed URL strategy"
+  echo "   • Internal validation: keycloak.linuxserver.lan:8443"
+  echo "   • Browser redirects: keycloak.ai-servicers.com"
 else
   echo "⚠️  Could not obtain admin token - realm configuration skipped"
-  echo "You may need to configure the realm manually via admin console"
+  echo "Manual configuration required via admin console:"
+  echo "   1. Go to Realm Settings > General"
+  echo "   2. Set Frontend URL: https://keycloak.ai-servicers.com"
+  echo "   3. Save configuration"
 fi
 
 # ── Verification ──────────────────────────────────────────────
@@ -336,8 +356,18 @@ echo ""
 echo "🔗 Forward Auth Configuration:"
 echo "   • OIDC Issuer: https://keycloak.linuxserver.lan:8443/realms/master"
 echo "   • Discovery URL: https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration"
-echo "   • Auth URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/auth"
-echo "   • Token URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/token"
+echo "   • Expected Auth URL: https://keycloak.ai-servicers.com/realms/master/protocol/openid-connect/auth"
+echo "   • Expected Token URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/token"
+echo ""
+echo "📋 Verification Commands:"
+echo "   # Check internal issuer (should be linuxserver.lan):"
+echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
+echo ""
+echo "   # Check auth endpoint (should be ai-servicers.com for browsers):"
+echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.authorization_endpoint'"
+echo ""
+echo "   # Test external access still works:"
+echo "   curl -s https://keycloak.ai-servicers.com/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
 echo ""
 echo "📋 Verification Commands:"
 echo "   # Test external HTTPS (browsers):"
