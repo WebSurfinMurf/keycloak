@@ -218,7 +218,6 @@ docker run -d \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
   -e KC_HTTPS_PORT=8443 \
@@ -240,7 +239,6 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname="https://${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
     --https-port=8443 \
@@ -266,6 +264,43 @@ until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
     ((counter++))
 done
 echo "✔️ Keycloak is ready with dual HTTPS support"
+
+# ── Configure Realm for Dynamic Issuer ──────────────────────────
+echo "=== Configuring Realm for Dynamic Issuer Support ==="
+
+# Wait a bit more for Keycloak to fully initialize
+sleep 10
+
+# Get admin token for API configuration
+echo "Getting admin access token..."
+ADMIN_TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=${KEYCLOAK_ADMIN}" \
+  -d "password=${KEYCLOAK_ADMIN_PASSWORD}" \
+  -d "grant_type=password" \
+  -d "client_id=admin-cli" | jq -r '.access_token')
+
+if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
+  echo "✅ Admin token obtained"
+  
+  # Update realm to use frontend URL from request
+  echo "Configuring realm for dynamic frontend URL..."
+  curl -s -X PUT "http://localhost:8080/admin/realms/master" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "frontendUrl": "",
+      "attributes": {
+        "frontendUrl": "",
+        "hostname-strict-backchannel": "false"
+      }
+    }'
+  
+  echo "✅ Realm configured for dynamic issuer"
+else
+  echo "⚠️  Could not obtain admin token - realm configuration skipped"
+  echo "You may need to configure the realm manually via admin console"
+fi
 
 # ── Verification ──────────────────────────────────────────────
 echo
