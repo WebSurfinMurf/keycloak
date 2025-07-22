@@ -218,14 +218,13 @@ docker run -d \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
   -e KC_HTTPS_PORT=8443 \
   -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/certs/keycloak-internal.crt \
   -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/conf/certs/keycloak-internal.key \
   -e KC_PROXY_HEADERS=xforwarded \
-  -e KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true \
   -p 8443:8443 \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=${NETWORK}" \
@@ -241,14 +240,13 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname="${PUBLIC_HOSTNAME}" \
+    --hostname="https://${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
     --https-port=8443 \
     --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt \
     --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
-    --hostname-strict=false \
-    --hostname-backchannel-dynamic=true
+    --hostname-strict=false
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize with dual HTTPS support..."
