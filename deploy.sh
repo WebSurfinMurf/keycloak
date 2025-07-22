@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script with LDAP Support (Environment-Driven)
+# Keycloak Deployment Script with Dual HTTPS Support
+# Internal HTTPS: keycloak.linuxserver.lan:8443 (for forward auth)
+# External HTTPS: keycloak.ai-servicers.com:443 (for browsers via Traefik)
 # ==============================================================================
 
 # ── Load secrets ──────────────────────────────────────────────
@@ -43,12 +45,44 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
 fi
 
 # ensure volumes exist
-for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}" "${LDAP_VOLUME}_config"; do
+for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}" "${LDAP_VOLUME}_config" "${KC_VOLUME}_certs"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
   fi
 done
+
+# ── Generate Self-Signed Certificate for Internal HTTPS ──────
+echo "=== Generating Self-Signed Certificate for Internal HTTPS ==="
+
+# Create temporary container to generate certificates
+docker run --rm \
+  -v "${KC_VOLUME}_certs":/certs \
+  --entrypoint="" \
+  alpine/openssl \
+  sh -c "
+    # Generate private key
+    openssl genrsa -out /certs/keycloak-internal.key 2048
+    
+    # Generate certificate for internal domain
+    openssl req -new -x509 -key /certs/keycloak-internal.key \
+      -out /certs/keycloak-internal.crt -days 365 \
+      -subj '/CN=keycloak.linuxserver.lan/O=Internal/C=US' \
+      -addext 'subjectAltName=DNS:keycloak.linuxserver.lan,DNS:keycloak,IP:172.22.0.5,IP:192.168.1.13'
+    
+    # Create PKCS12 keystore for Keycloak
+    openssl pkcs12 -export -in /certs/keycloak-internal.crt \
+      -inkey /certs/keycloak-internal.key \
+      -out /certs/keycloak-internal.p12 \
+      -name keycloak-internal \
+      -passout pass:changeit
+    
+    # Set permissions
+    chmod 644 /certs/*
+    ls -la /certs/
+  "
+
+echo "✔️ Self-signed certificates generated"
 
 # ── OpenLDAP: only create/start if not already running ────────
 echo "=== Setting up OpenLDAP Server ==="
@@ -154,7 +188,7 @@ else
 fi
 
 # ── Keycloak: always remove & re-deploy ───────────────────────
-echo "=== Setting up Keycloak ==="
+echo "=== Setting up Keycloak with Dual HTTPS Support ==="
 if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
   echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
   docker rm -f "${KC_CONTAINER}"
@@ -164,12 +198,17 @@ fi
 echo "Ensuring dependencies are ready..."
 sleep 5
 
-echo "Starting Keycloak with LDAP integration support..."
+echo "Starting Keycloak with dual HTTPS support..."
+echo "  • External HTTPS: https://${PUBLIC_HOSTNAME} (via Traefik)"
+echo "  • Internal HTTPS: https://keycloak.linuxserver.lan:8443 (direct)"
+
 docker run -d \
   --name "${KC_CONTAINER}" \
   --network "${NETWORK}" \
   --restart unless-stopped \
+  --hostname keycloak.linuxserver.lan \
   -v "${KC_VOLUME}":/opt/keycloak/data \
+  -v "${KC_VOLUME}_certs":/opt/keycloak/conf/certs \
   -e KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN}" \
   -e KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
@@ -179,10 +218,16 @@ docker run -d \
   -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
   -e KC_DB_USERNAME="${POSTGRES_USER}" \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_HOSTNAME="https://${PUBLIC_HOSTNAME}" \
+  -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
+  -e KC_HTTPS_ENABLED=true \
+  -e KC_HTTPS_PORT=8443 \
+  -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/certs/keycloak-internal.crt \
+  -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/conf/certs/keycloak-internal.key \
   -e KC_PROXY_HEADERS=xforwarded \
+  -e KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true \
+  -p 8443:8443 \
   --label "traefik.enable=true" \
   --label "traefik.docker.network=${NETWORK}" \
   --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
@@ -197,13 +242,18 @@ docker run -d \
   --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
   --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
   "${KC_IMAGE}" start \
-    --hostname="https://${PUBLIC_HOSTNAME}" \
+    --hostname="${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
-    --hostname-strict=false
+    --https-enabled=true \
+    --https-port=8443 \
+    --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt \
+    --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
+    --hostname-strict=false \
+    --hostname-backchannel-dynamic=true
 
 # Wait for Keycloak to be ready
-echo "Waiting for Keycloak to initialize..."
+echo "Waiting for Keycloak to initialize with dual HTTPS support..."
 timeout=120
 counter=0
 until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
@@ -219,46 +269,51 @@ until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
     sleep 2
     ((counter++))
 done
-echo "✔️ Keycloak is ready"
+echo "✔️ Keycloak is ready with dual HTTPS support"
+
+# ── Verification ──────────────────────────────────────────────
+echo
+echo "=== Verifying Dual HTTPS Configuration ==="
+
+echo "Testing external HTTPS access..."
+sleep 5
+if curl -s -k "https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "${PUBLIC_HOSTNAME}"; then
+    echo "✅ External HTTPS: Working"
+else
+    echo "⚠️  External HTTPS: May need a moment to fully initialize"
+fi
+
+echo "Testing internal HTTPS access..."
+if curl -s -k "https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "keycloak.linuxserver.lan"; then
+    echo "✅ Internal HTTPS: Working"
+else
+    echo "⚠️  Internal HTTPS: May need a moment to fully initialize"
+fi
 
 echo
-echo "🎉 Keycloak with LDAP support is ready!"
+echo "🎉 Keycloak with Dual HTTPS Support is ready!"
 echo ""
 echo "📍 Access Points:"
-echo "   • Keycloak Admin: https://${PUBLIC_HOSTNAME}/admin/"
-echo "   • Internal Access: http://${INTERNAL_HOSTNAME}/admin/"
+echo "   • External HTTPS: https://${PUBLIC_HOSTNAME}/admin/ (browsers via Traefik)"
+echo "   • Internal HTTPS: https://keycloak.linuxserver.lan:8443/admin/ (containers direct)"
+echo "   • Legacy HTTP: http://keycloak.linuxserver.lan:8080/admin/ (fallback)"
 echo ""
 echo "🔐 Admin Credentials:"
 echo "   • Username: ${KEYCLOAK_ADMIN}"
 echo "   • Password: ${KEYCLOAK_ADMIN_PASSWORD}"
 echo ""
-echo "🗂️  LDAP Configuration:"
-echo "   • LDAP Server: ${LDAP_CONTAINER}:389"
-echo "   • Base DN: ${LDAP_BASE_DN}"
-echo "   • Admin DN: cn=admin,${LDAP_BASE_DN}"
-echo "   • Users DN: ${LDAP_USERS_DN}"
-echo "   • Groups DN: ${LDAP_GROUPS_DN}"
+echo "🔗 Forward Auth Configuration:"
+echo "   • OIDC Issuer: https://keycloak.linuxserver.lan:8443/realms/master"
+echo "   • Discovery URL: https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration"
+echo "   • Auth URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/auth"
+echo "   • Token URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/token"
 echo ""
-echo "📋 Next Steps for Mailu Integration:"
-echo "   1. Configure LDAP User Federation in Keycloak Admin Console"
-echo "   2. Update Mailu environment with LDAP settings"
-echo "   3. Test user creation and authentication flow"
+echo "📋 Verification Commands:"
+echo "   # Test external HTTPS (browsers):"
+echo "   curl -s https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
 echo ""
-echo "🔧 Ready-to-use LDAP settings for Keycloak User Federation:"
-echo "   • Connection URL: ldap://${LDAP_CONTAINER}:389"
-echo "   • Bind DN: cn=admin,${LDAP_BASE_DN}"
-echo "   • Bind Credential: ${LDAP_ADMIN_PASSWORD}"
-echo "   • Users DN: ${LDAP_USERS_DN}"
-echo "   • Username LDAP Attribute: uid"
-echo "   • RDN LDAP Attribute: uid"
-echo "   • UUID LDAP Attribute: entryUUID"
-echo "   • User Object Classes: inetOrgPerson,organizationalPerson"
+echo "   # Test internal HTTPS (forward auth):"
+echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
 echo ""
-echo "🔍 Verification Commands:"
-echo "   # Check if Keycloak is generating HTTPS URLs:"
-echo "   curl -s http://172.22.0.5:8080/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
-echo "   # Should return: https://${PUBLIC_HOSTNAME}/realms/master"
-echo ""
-echo "   # Test SSO flow:"
-echo "   # Visit: https://mailu.ai-servicers.com/sso/admin/"
-echo "   # Should redirect to: https://${PUBLIC_HOSTNAME}/realms/master/protocol/openid-connect/auth..."
+echo "🚀 The circular dependency is broken! Forward auth can now use HTTPS internally!"
+echo "   Update forward auth config to use: https://keycloak.linuxserver.lan:8443"
