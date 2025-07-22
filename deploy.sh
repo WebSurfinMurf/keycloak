@@ -221,7 +221,6 @@ docker run -d \
   -e KC_HOSTNAME="${PUBLIC_HOSTNAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
-  -e KC_HTTPS_ENABLED=true \
   -e KC_HTTPS_PORT=8443 \
   -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/certs/keycloak-internal.crt \
   -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/conf/certs/keycloak-internal.key \
@@ -245,7 +244,6 @@ docker run -d \
     --hostname="${PUBLIC_HOSTNAME}" \
     --proxy-headers=xforwarded \
     --http-enabled=true \
-    --https-enabled=true \
     --https-port=8443 \
     --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt \
     --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
