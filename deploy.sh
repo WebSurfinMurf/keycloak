@@ -220,7 +220,6 @@ docker run -d \
   -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
   -e KC_FEATURES="hostname:v1" \
   -e KC_HOSTNAME_STRICT=false \
-  -e KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true \
   -e KC_HTTP_ENABLED=true \
   -e KC_HTTPS_PORT=8443 \
   -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/certs/keycloak-internal.crt \
@@ -249,8 +248,7 @@ docker run -d \
     --https-port=8443 \
     --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt \
     --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
-    --hostname-strict=false \
-    --hostname-backchannel-dynamic=true
+    --hostname-strict=false
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize with dual HTTPS support..."
@@ -289,19 +287,6 @@ ADMIN_TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/open
 if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
   echo "✅ Admin token obtained"
   
-  # Update realm with custom client mappers for URL rewriting
-  echo "Creating custom URL mapper for browser redirects..."
-  
-  # Create a custom client scope for URL mapping
-  CLIENT_SCOPE_ID=$(curl -s -X POST "http://localhost:8080/admin/realms/master/client-scopes" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "name": "external-urls",
-      "description": "Maps internal URLs to external URLs for browser access",
-      "protocol": "openid-connect"
-    }' | jq -r '.id // empty')
-  
   # Configure the realm to use external URLs for browser endpoints
   echo "Configuring realm with external frontend URL..."
   curl -s -X PUT "http://localhost:8080/admin/realms/master" \
@@ -309,8 +294,10 @@ if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
     -H "Content-Type: application/json" \
     -d "{
       \"frontendUrl\": \"https://keycloak.ai-servicers.com\",
+      \"adminUrl\": \"https://keycloak.ai-servicers.com\",
       \"attributes\": {
         \"frontendUrl\": \"https://keycloak.ai-servicers.com\",
+        \"adminUrl\": \"https://keycloak.ai-servicers.com\",
         \"hostname-strict-backchannel\": \"false\",
         \"hostname-strict\": \"false\"
       }
