@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# Keycloak Deployment Script with Dual HTTPS Support
+# Keycloak Deployment Script - SIMPLIFIED WITHOUT LDAP
 # Internal HTTPS: keycloak.linuxserver.lan:8443 (for forward auth)
 # External HTTPS: keycloak.ai-servicers.com:443 (for browsers via Traefik)
 # ==============================================================================
@@ -24,7 +24,7 @@ echo "=== Validating Environment Variables ==="
 required_vars=(
     "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD"
     "POSTGRES_DB" "POSTGRES_USER" "POSTGRES_PASSWORD"
-    "LDAP_ADMIN_PASSWORD" "PUBLIC_HOSTNAME"
+    "PUBLIC_HOSTNAME"
 )
 
 for var in "${required_vars[@]}"; do
@@ -44,8 +44,8 @@ if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
   docker network create "${NETWORK}"
 fi
 
-# ensure volumes exist
-for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${LDAP_VOLUME}" "${LDAP_VOLUME}_config" "${KC_VOLUME}_certs"; do
+# ensure volumes exist (removed LDAP volumes)
+for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${KC_VOLUME}_certs"; do
   if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
     echo "Creating volume ${vol}…"
     docker volume create "${vol}"
@@ -83,79 +83,6 @@ docker run --rm \
   "
 
 echo "✔️ Self-signed certificates generated"
-
-# ── OpenLDAP: only create/start if not already running ────────
-echo "=== Setting up OpenLDAP Server ==="
-if docker ps --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
-  echo "OpenLDAP '${LDAP_CONTAINER}' is already running → skipping"
-elif docker ps -a --format '{{.Names}}' | grep -qx "${LDAP_CONTAINER}"; then
-  echo "OpenLDAP '${LDAP_CONTAINER}' exists but is stopped → starting"
-  docker start "${LDAP_CONTAINER}"
-else
-  echo "Starting OpenLDAP server for Keycloak integration..."
-  docker run -d \
-    --name "${LDAP_CONTAINER}" \
-    --network "${NETWORK}" \
-    --restart unless-stopped \
-    -v "${LDAP_VOLUME}":/var/lib/ldap \
-    -v "${LDAP_VOLUME}_config":/etc/ldap/slapd.d \
-    -e LDAP_ORGANISATION="${LDAP_ORGANISATION}" \
-    -e LDAP_DOMAIN="${LDAP_DOMAIN}" \
-    -e LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD}" \
-    -e LDAP_CONFIG_PASSWORD="${LDAP_CONFIG_PASSWORD:-$LDAP_ADMIN_PASSWORD}" \
-    -e LDAP_TLS_VERIFY_CLIENT="${LDAP_TLS_VERIFY_CLIENT:-never}" \
-    -p 389:389 \
-    -p 636:636 \
-    "${LDAP_IMAGE}"
-  
-  # Wait for LDAP to initialize
-  echo "Waiting for LDAP to initialize..."
-  sleep 15
-  
-  # Create initial organizational structure
-  echo "Setting up LDAP organizational structure..."
-  docker exec "${LDAP_CONTAINER}" bash -c "cat > /tmp/structure.ldif << 'EOF'
-dn: ${LDAP_USERS_DN}
-objectClass: organizationalUnit
-ou: users
-
-dn: ${LDAP_GROUPS_DN}
-objectClass: organizationalUnit
-ou: groups
-
-dn: ou=services,${LDAP_BASE_DN}
-objectClass: organizationalUnit
-ou: services
-
-dn: cn=mailu-admins,${LDAP_GROUPS_DN}
-objectClass: groupOfNames
-cn: mailu-admins
-description: Mailu administrators group
-member: cn=admin,${LDAP_USERS_DN}
-
-dn: cn=mailu-users,${LDAP_GROUPS_DN}
-objectClass: groupOfNames
-cn: mailu-users
-description: Mailu users group
-member: cn=admin,${LDAP_USERS_DN}
-
-dn: cn=mailu,ou=services,${LDAP_BASE_DN}
-objectClass: inetOrgPerson
-cn: mailu
-sn: service
-uid: mailu
-mail: mailu@${LDAP_DOMAIN}
-userPassword: ${MAILU_LDAP_BIND_PASSWORD}
-description: Service account for Mailu integration
-EOF"
-
-  # Apply the LDAP structure
-  docker exec "${LDAP_CONTAINER}" ldapadd -x -D "cn=admin,${LDAP_BASE_DN}" -w "${LDAP_ADMIN_PASSWORD}" -f /tmp/structure.ldif || {
-    echo "⚠️  WARNING: LDAP structure creation failed (may already exist)"
-  }
-  
-  echo "✔️ LDAP server initialized successfully"
-fi
 
 # ── Postgres: only create/start if not already running ────────
 echo "=== Setting up PostgreSQL ==="
@@ -303,26 +230,9 @@ if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
       }
     }"
   
-  # Also configure browser flow URLs to use external domain
-  echo "Setting browser redirect URLs to external domain..."
-  
-  # Create custom authentication flow configuration if needed
-  curl -s -X PUT "http://localhost:8080/admin/realms/master/authentication/flows/browser/executions" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "frontendUrl": "https://keycloak.ai-servicers.com"
-    }' || echo "Browser flow configuration applied"
-  
   echo "✅ Realm configured for mixed URL strategy"
-  echo "   • Internal validation: keycloak.linuxserver.lan:8443"
-  echo "   • Browser redirects: keycloak.ai-servicers.com"
 else
   echo "⚠️  Could not obtain admin token - realm configuration skipped"
-  echo "Manual configuration required via admin console:"
-  echo "   1. Go to Realm Settings > General"
-  echo "   2. Set Frontend URL: https://keycloak.ai-servicers.com"
-  echo "   3. Save configuration"
 fi
 
 # ── Verification ──────────────────────────────────────────────
@@ -338,46 +248,33 @@ else
 fi
 
 echo "Testing internal HTTPS access..."
-if curl -s -k "https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "keycloak.linuxserver.lan"; then
+if curl -s -k "https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "keycloak"; then
     echo "✅ Internal HTTPS: Working"
 else
     echo "⚠️  Internal HTTPS: May need a moment to fully initialize"
 fi
 
 echo
-echo "🎉 Keycloak with Dual HTTPS Support is ready!"
+echo "🎉 Keycloak (WITHOUT LDAP) is ready!"
 echo ""
 echo "📍 Access Points:"
 echo "   • External HTTPS: https://${PUBLIC_HOSTNAME}/admin/ (browsers via Traefik)"
 echo "   • Internal HTTPS: https://keycloak.linuxserver.lan:8443/admin/ (containers direct)"
-echo "   • Legacy HTTP: http://keycloak.linuxserver.lan:8080/admin/ (fallback)"
 echo ""
 echo "🔐 Admin Credentials:"
 echo "   • Username: ${KEYCLOAK_ADMIN}"
 echo "   • Password: ${KEYCLOAK_ADMIN_PASSWORD}"
 echo ""
-echo "🔗 Forward Auth Configuration:"
-echo "   • OIDC Issuer: https://keycloak.linuxserver.lan:8443/realms/master"
-echo "   • Discovery URL: https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration"
-echo "   • Expected Auth URL: https://keycloak.ai-servicers.com/realms/master/protocol/openid-connect/auth"
-echo "   • Expected Token URL: https://keycloak.linuxserver.lan:8443/realms/master/protocol/openid-connect/token"
+echo "👤 User Management:"
+echo "   • All users are now LOCAL to Keycloak (no LDAP)"
+echo "   • Create users directly in Keycloak admin console"
+echo "   • No federation complications!"
 echo ""
-echo "📋 Verification Commands:"
-echo "   # Check internal issuer (should be linuxserver.lan):"
-echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
+echo "🔗 OIDC Configuration for Applications:"
+echo "   • Issuer: https://keycloak.ai-servicers.com/realms/master"
+echo "   • Discovery URL: https://keycloak.ai-servicers.com/realms/master/.well-known/openid-configuration"
 echo ""
-echo "   # Check auth endpoint (should be ai-servicers.com for browsers):"
-echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.authorization_endpoint'"
-echo ""
-echo "   # Test external access still works:"
-echo "   curl -s https://keycloak.ai-servicers.com/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
-echo ""
-echo "📋 Verification Commands:"
-echo "   # Test external HTTPS (browsers):"
-echo "   curl -s https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
-echo ""
-echo "   # Test internal HTTPS (forward auth):"
-echo "   curl -s -k https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration | jq -r '.issuer'"
-echo ""
-echo "🚀 The circular dependency is broken! Forward auth can now use HTTPS internally!"
-echo "   Update forward auth config to use: https://keycloak.linuxserver.lan:8443"
+echo "📋 Next Steps:"
+echo "   1. Create your local user in Keycloak admin"
+echo "   2. Create the open-webui client"
+echo "   3. Configure Open WebUI with OIDC"
