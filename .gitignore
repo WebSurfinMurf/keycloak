@@ -1,0 +1,67 @@
+# Environment and secrets
+*.env
+.env.*
+*.secret
+secrets/
+credentials/
+
+# Certificates and keys
+*.key
+*.pem
+*.crt
+*.cert
+*.p12
+*.pfx
+*.jks
+ssl/
+certs/
+certificates/
+keystore/
+
+# Keycloak specific
+standalone/
+domain/
+data/
+themes/custom/
+deployments/
+
+# Database files
+*.db
+*.sqlite
+*.sql
+*.dump
+
+# Logs
+*.log
+logs/
+*.out
+*.err
+
+# Backups and temp files
+*.bak
+*.backup
+*.tmp
+*.temp
+*.old
+*.orig
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+.Trash-*
+
+# Docker volumes
+volumes/
+*.pid
+
+# Editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# Runtime and cache
+__pycache__/
+*.pyc
+.cache/
