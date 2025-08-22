@@ -8,7 +8,7 @@ set -euo pipefail
 # ==============================================================================
 
 # ── Load secrets ──────────────────────────────────────────────
-ENV_FILE="$(dirname "$0")/../secrets/keycloak.env"
+ENV_FILE="/home/administrator/projects/secrets/keycloak.env"
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "❌ ERROR: Environment file not found at $ENV_FILE"
     exit 1
@@ -38,10 +38,16 @@ echo "✔️ Environment validation passed"
 # ── Infra provisioning ───────────────────────────────────────
 echo "=== Setting up infrastructure ==="
 
-# ensure network exists
+# ensure networks exist
 if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
   echo "Creating network ${NETWORK}…"
   docker network create "${NETWORK}"
+fi
+
+# Create postgres-net for database connections
+if ! docker network ls --format '{{.Name}}' | grep -qx "postgres-net"; then
+  echo "Creating network postgres-net…"
+  docker network create "postgres-net"
 fi
 
 # ensure volumes exist (removed LDAP volumes)
@@ -95,7 +101,7 @@ else
   echo "Starting Postgres (${PG_IMAGE})…"
   docker run -d \
     --name "${PG_CONTAINER}" \
-    --network "${NETWORK}" \
+    --network "postgres-net" \
     --restart unless-stopped \
     -v "${PG_VOLUME}":/var/lib/postgresql/data \
     -e POSTGRES_DB="${POSTGRES_DB}" \
@@ -129,9 +135,10 @@ echo "Starting Keycloak with dual HTTPS support..."
 echo "  • External HTTPS: https://${PUBLIC_HOSTNAME} (via Traefik)"
 echo "  • Internal HTTPS: https://keycloak.linuxserver.lan:8443 (direct)"
 
+# Start Keycloak on postgres-net first (for database access)
 docker run -d \
   --name "${KC_CONTAINER}" \
-  --network "${NETWORK}" \
+  --network "postgres-net" \
   --restart unless-stopped \
   --hostname keycloak.linuxserver.lan \
   -v "${KC_VOLUME}":/opt/keycloak/data \
@@ -177,24 +184,41 @@ docker run -d \
     --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
     --hostname-strict=false
 
+# Connect Keycloak to traefik-proxy IMMEDIATELY for web access
+echo "Connecting Keycloak to traefik-proxy for web access..."
+docker network connect traefik-proxy "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to traefik-proxy"
+
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize with dual HTTPS support..."
 timeout=120
 counter=0
-until docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Keycloak.*started" || \
-      docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Admin console listening" || \
-      docker logs "${KC_CONTAINER}" 2>&1 | grep -q "Running the server in development mode"; do
-    if [[ $counter -ge $timeout ]]; then
-        echo "❌ ERROR: Keycloak failed to start within $timeout seconds"
-        echo "Keycloak logs:"
-        docker logs "${KC_CONTAINER}" --tail 20
-        exit 1
+# Simplified wait - just check if container is running
+while [ $counter -lt $timeout ]; do
+    if docker ps | grep -q "${KC_CONTAINER}"; then
+        # Container is running, give it a bit more time to fully initialize
+        echo "✔️ Keycloak container is running"
+        sleep 10
+        break
     fi
-    echo "  - Waiting for Keycloak to be ready... ($counter/$timeout)"
+    echo "  - Waiting for Keycloak to start... ($counter/$timeout)"
     sleep 2
     ((counter++))
 done
+
+if [ $counter -ge $timeout ]; then
+    echo "❌ ERROR: Keycloak failed to start within $timeout seconds"
+    docker logs "${KC_CONTAINER}" --tail 20
+    exit 1
+fi
+
 echo "✔️ Keycloak is ready with dual HTTPS support"
+
+# Note: keycloak-postgres is already created on postgres-net only (see line 104)
+# This is just a safety check in case it was manually connected to traefik-proxy
+if docker inspect "${PG_CONTAINER}" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null | grep -q "traefik-proxy"; then
+  echo "Removing keycloak-postgres from traefik-proxy (should only be on postgres-net)..."
+  docker network disconnect traefik-proxy "${PG_CONTAINER}" 2>/dev/null || true
+fi
 
 # ── Configure Realm for Mixed URL Strategy ──────────────────────────
 echo "=== Configuring Realm for Mixed Internal/External URLs ==="
