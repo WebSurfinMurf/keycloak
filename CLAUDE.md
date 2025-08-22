@@ -46,10 +46,10 @@ _This section is updated by Claude during each session_
 
 ## Credentials
 - **Admin Username**: admin
-- **Admin Password**: SecureAdminPass2024!
+- **Admin Password**: <see secrets/keycloak.env>
 - **Database Name**: keycloak
 - **Database User**: keycloak
-- **Database Password**: SecureDbPass2024!
+- **Database Password**: <see secrets/keycloak.env>
 
 ## Database Management
 - **Container**: keycloak-postgres
@@ -85,7 +85,7 @@ docker inspect keycloak --format '{{range $net, $conf := .NetworkSettings.Networ
 
 # Access database via PostgreSQL client
 psql -h localhost -p 5432 -U keycloak -d keycloak
-# Password: SecureDbPass2024!
+# Password: <see secrets/keycloak.env>
 ```
 
 ## Troubleshooting
