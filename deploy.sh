@@ -188,6 +188,10 @@ docker run -d \
 echo "Connecting Keycloak to traefik-proxy for web access..."
 docker network connect traefik-proxy "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to traefik-proxy"
 
+# Connect to keycloak-net for auth proxy services (OpenBao, Grafana, etc.)
+echo "Connecting Keycloak to keycloak-net for auth proxy services..."
+docker network connect keycloak-net "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to keycloak-net"
+
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to initialize with dual HTTPS support..."
 timeout=120
