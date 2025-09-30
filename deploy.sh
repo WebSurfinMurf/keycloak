@@ -184,9 +184,9 @@ docker run -d \
     --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
     --hostname-strict=false
 
-# Connect Keycloak to traefik-proxy IMMEDIATELY for web access
-echo "Connecting Keycloak to traefik-proxy for web access..."
-docker network connect traefik-proxy "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to traefik-proxy"
+# Connect Keycloak to traefik-net IMMEDIATELY for web access
+echo "Connecting Keycloak to traefik-net for web access..."
+docker network connect traefik-net "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to traefik-net"
 
 # Connect to keycloak-net for auth proxy services (OpenBao, Grafana, etc.)
 echo "Connecting Keycloak to keycloak-net for auth proxy services..."
@@ -218,10 +218,10 @@ fi
 echo "✔️ Keycloak is ready with dual HTTPS support"
 
 # Note: keycloak-postgres is already created on postgres-net only (see line 104)
-# This is just a safety check in case it was manually connected to traefik-proxy
-if docker inspect "${PG_CONTAINER}" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null | grep -q "traefik-proxy"; then
-  echo "Removing keycloak-postgres from traefik-proxy (should only be on postgres-net)..."
-  docker network disconnect traefik-proxy "${PG_CONTAINER}" 2>/dev/null || true
+# This is just a safety check in case it was manually connected to traefik-net
+if docker inspect "${PG_CONTAINER}" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null | grep -q "traefik-net"; then
+  echo "Removing keycloak-postgres from traefik-net (should only be on postgres-net)..."
+  docker network disconnect traefik-net "${PG_CONTAINER}" 2>/dev/null || true
 fi
 
 # ── Configure Realm for Mixed URL Strategy ──────────────────────────
