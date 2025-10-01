@@ -1,0 +1,110 @@
+version: '3.8'
+
+networks:
+  traefik-net:
+    external: true
+  keycloak-net:
+    external: true
+  postgres-net:
+    external: true
+
+volumes:
+  keycloak-data:
+    external: true
+  keycloak-certs:
+    external: true
+  keycloak-postgres-data:
+    external: true
+    name: keycloak_pg_data
+
+services:
+  keycloak-postgres:
+    image: ${PG_IMAGE:-postgres:15}
+    container_name: ${PG_CONTAINER:-keycloak-postgres}
+    restart: unless-stopped
+    networks:
+      - postgres-net
+    volumes:
+      - keycloak-postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: ${KC_IMAGE:-quay.io/keycloak/keycloak:25.0}
+    container_name: ${KC_CONTAINER:-keycloak}
+    restart: unless-stopped
+    hostname: keycloak.linuxserver.lan
+    networks:
+      - postgres-net
+      - traefik-net
+      - keycloak-net
+    ports:
+      - "8443:8443"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - keycloak-certs:/opt/keycloak/conf/certs
+    environment:
+      # Admin credentials
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+
+      # Database configuration
+      KC_DB: postgres
+      KC_DB_URL_HOST: ${PG_CONTAINER:-keycloak-postgres}
+      KC_DB_URL_DATABASE: ${POSTGRES_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # Hostname configuration
+      KC_FEATURES: "hostname:v1"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: xforwarded
+
+      # HTTP/HTTPS configuration
+      KC_HTTP_ENABLED: "true"
+      KC_HTTPS_PORT: "8443"
+      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/conf/certs/keycloak-internal.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/conf/certs/keycloak-internal.key
+    command:
+      - start
+      - --features=hostname:v1
+      - --hostname=${PUBLIC_HOSTNAME:-keycloak.ai-servicers.com}
+      - --hostname-admin=${PUBLIC_HOSTNAME:-keycloak.ai-servicers.com}
+      - --proxy-headers=xforwarded
+      - --http-enabled=true
+      - --https-port=8443
+      - --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt
+      - --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key
+      - --hostname-strict=false
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+
+      # External HTTPS route
+      - "traefik.http.routers.keycloak-secure.rule=Host(`${PUBLIC_HOSTNAME:-keycloak.ai-servicers.com}`)"
+      - "traefik.http.routers.keycloak-secure.entrypoints=websecure"
+      - "traefik.http.routers.keycloak-secure.tls=true"
+      - "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.keycloak-secure.tls.domains[0].main=ai-servicers.com"
+      - "traefik.http.routers.keycloak-secure.tls.domains[0].sans=*.ai-servicers.com"
+      - "traefik.http.routers.keycloak-secure.service=keycloak-service"
+
+      # Internal HTTP route
+      - "traefik.http.routers.keycloak-internal.rule=Host(`${INTERNAL_HOSTNAME:-keycloak.linuxserver.lan}`)"
+      - "traefik.http.routers.keycloak-internal.entrypoints=web"
+      - "traefik.http.routers.keycloak-internal.service=keycloak-service"
+
+      # Service definition
+      - "traefik.http.services.keycloak-service.loadbalancer.server.port=8080"
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy

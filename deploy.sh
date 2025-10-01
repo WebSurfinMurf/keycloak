@@ -1,26 +1,39 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-# ==============================================================================
-# Keycloak Deployment Script - SIMPLIFIED WITHOUT LDAP
-# Internal HTTPS: keycloak.linuxserver.lan:8443 (for forward auth)
-# External HTTPS: keycloak.ai-servicers.com:443 (for browsers via Traefik)
-# ==============================================================================
+echo "🚀 Deploying Keycloak Identity Provider"
+echo "========================================="
+echo ""
 
-# ── Load secrets ──────────────────────────────────────────────
-ENV_FILE="/home/administrator/projects/secrets/keycloak.env"
-if [[ ! -f "$ENV_FILE" ]]; then
-    echo "❌ ERROR: Environment file not found at $ENV_FILE"
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Environment file
+ENV_FILE="/home/administrator/secrets/keycloak.env"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# --- Pre-deployment Checks ---
+echo "🔍 Pre-deployment checks..."
+
+# Check environment file
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${RED}❌ Environment file not found: $ENV_FILE${NC}"
     exit 1
 fi
+echo -e "${GREEN}✅ Environment file exists${NC}"
 
-echo "Loading environment variables from $ENV_FILE..."
+# Source environment variables
 set -o allexport
 source "$ENV_FILE"
 set +o allexport
 
-# ── Validation ──────────────────────────────────────────────
-echo "=== Validating Environment Variables ==="
+# Validate required variables
 required_vars=(
     "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD"
     "POSTGRES_DB" "POSTGRES_USER" "POSTGRES_PASSWORD"
@@ -29,280 +42,213 @@ required_vars=(
 
 for var in "${required_vars[@]}"; do
     if [[ -z "${!var:-}" ]]; then
-        echo "❌ ERROR: Required variable $var is not set"
+        echo -e "${RED}❌ Required variable $var is not set${NC}"
         exit 1
     fi
 done
-echo "✔️ Environment validation passed"
+echo -e "${GREEN}✅ Environment variables validated${NC}"
 
-# ── Infra provisioning ───────────────────────────────────────
-echo "=== Setting up infrastructure ==="
-
-# ensure networks exist
-if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK}"; then
-  echo "Creating network ${NETWORK}…"
-  docker network create "${NETWORK}"
-fi
-
-# Create postgres-net for database connections
-if ! docker network ls --format '{{.Name}}' | grep -qx "postgres-net"; then
-  echo "Creating network postgres-net…"
-  docker network create "postgres-net"
-fi
-
-# ensure volumes exist (removed LDAP volumes)
-for vol in "${PG_VOLUME}" "${KC_VOLUME}" "${KC_VOLUME}_certs"; do
-  if ! docker volume ls --format '{{.Name}}' | grep -qx "${vol}"; then
-    echo "Creating volume ${vol}…"
-    docker volume create "${vol}"
-  fi
-done
-
-# ── Generate Self-Signed Certificate for Internal HTTPS ──────
-echo "=== Generating Self-Signed Certificate for Internal HTTPS ==="
-
-# Create temporary container to generate certificates
-docker run --rm \
-  -v "${KC_VOLUME}_certs":/certs \
-  --entrypoint="" \
-  alpine/openssl \
-  sh -c "
-    # Generate private key
-    openssl genrsa -out /certs/keycloak-internal.key 2048
-    
-    # Generate certificate for internal domain
-    openssl req -new -x509 -key /certs/keycloak-internal.key \
-      -out /certs/keycloak-internal.crt -days 365 \
-      -subj '/CN=keycloak.linuxserver.lan/O=Internal/C=US' \
-      -addext 'subjectAltName=DNS:keycloak.linuxserver.lan,DNS:keycloak,IP:172.22.0.5,IP:192.168.1.13'
-    
-    # Create PKCS12 keystore for Keycloak
-    openssl pkcs12 -export -in /certs/keycloak-internal.crt \
-      -inkey /certs/keycloak-internal.key \
-      -out /certs/keycloak-internal.p12 \
-      -name keycloak-internal \
-      -passout pass:changeit
-    
-    # Set permissions
-    chmod 644 /certs/*
-    ls -la /certs/
-  "
-
-echo "✔️ Self-signed certificates generated"
-
-# ── Postgres: only create/start if not already running ────────
-echo "=== Setting up PostgreSQL ==="
-if docker ps --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
-  echo "Postgres '${PG_CONTAINER}' is already running → skipping"
-elif docker ps -a --format '{{.Names}}' | grep -qx "${PG_CONTAINER}"; then
-  echo "Postgres '${PG_CONTAINER}' exists but is stopped → starting"
-  docker start "${PG_CONTAINER}"
-else
-  echo "Starting Postgres (${PG_IMAGE})…"
-  docker run -d \
-    --name "${PG_CONTAINER}" \
-    --network "postgres-net" \
-    --restart unless-stopped \
-    -v "${PG_VOLUME}":/var/lib/postgresql/data \
-    -e POSTGRES_DB="${POSTGRES_DB}" \
-    -e POSTGRES_USER="${POSTGRES_USER}" \
-    -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
-    "${PG_IMAGE}"
-  
-  echo "Waiting for PostgreSQL to initialize..."
-  sleep 10
-  
-  # Test database connectivity
-  until docker exec "${PG_CONTAINER}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"; do
-    echo "  - Waiting for PostgreSQL to be ready..."
-    sleep 2
-  done
-  echo "✔️ PostgreSQL is ready"
-fi
-
-# ── Keycloak: always remove & re-deploy ───────────────────────
-echo "=== Setting up Keycloak with Dual HTTPS Support ==="
-if docker ps -a --format '{{.Names}}' | grep -qx "${KC_CONTAINER}"; then
-  echo "Removing existing Keycloak container '${KC_CONTAINER}'…"
-  docker rm -f "${KC_CONTAINER}"
-fi
-
-# Wait for dependencies to be ready
-echo "Ensuring dependencies are ready..."
-sleep 5
-
-echo "Starting Keycloak with dual HTTPS support..."
-echo "  • External HTTPS: https://${PUBLIC_HOSTNAME} (via Traefik)"
-echo "  • Internal HTTPS: https://keycloak.linuxserver.lan:8443 (direct)"
-
-# Start Keycloak on postgres-net first (for database access)
-docker run -d \
-  --name "${KC_CONTAINER}" \
-  --network "postgres-net" \
-  --restart unless-stopped \
-  --hostname keycloak.linuxserver.lan \
-  -v "${KC_VOLUME}":/opt/keycloak/data \
-  -v "${KC_VOLUME}_certs":/opt/keycloak/conf/certs \
-  -e KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN}" \
-  -e KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
-  -e KC_BOOTSTRAP_ADMIN_USERNAME="${KEYCLOAK_ADMIN}" \
-  -e KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD}" \
-  -e KC_DB="postgres" \
-  -e KC_DB_URL_HOST="${PG_CONTAINER}" \
-  -e KC_DB_URL_DATABASE="${POSTGRES_DB}" \
-  -e KC_DB_USERNAME="${POSTGRES_USER}" \
-  -e KC_DB_PASSWORD="${POSTGRES_PASSWORD}" \
-  -e KC_FEATURES="hostname:v1" \
-  -e KC_HOSTNAME_STRICT=false \
-  -e KC_HTTP_ENABLED=true \
-  -e KC_HTTPS_PORT=8443 \
-  -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/certs/keycloak-internal.crt \
-  -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/conf/certs/keycloak-internal.key \
-  -e KC_PROXY_HEADERS=xforwarded \
-  -p 8443:8443 \
-  --label "traefik.enable=true" \
-  --label "traefik.docker.network=${NETWORK}" \
-  --label "traefik.http.routers.keycloak-secure.rule=Host(\`${PUBLIC_HOSTNAME}\`)" \
-  --label "traefik.http.routers.keycloak-secure.entrypoints=websecure" \
-  --label "traefik.http.routers.keycloak-secure.tls=true" \
-  --label "traefik.http.routers.keycloak-secure.tls.certresolver=letsencrypt" \
-  --label "traefik.http.routers.keycloak-secure.tls.domains[0].main=ai-servicers.com" \
-  --label "traefik.http.routers.keycloak-secure.tls.domains[0].sans=*.ai-servicers.com" \
-  --label "traefik.http.routers.keycloak-secure.service=keycloak-service" \
-  --label "traefik.http.routers.keycloak-internal.rule=Host(\`${INTERNAL_HOSTNAME}\`)" \
-  --label "traefik.http.routers.keycloak-internal.entrypoints=web" \
-  --label "traefik.http.routers.keycloak-internal.service=keycloak-service" \
-  --label "traefik.http.services.keycloak-service.loadbalancer.server.port=8080" \
-  "${KC_IMAGE}" start \
-    --features="hostname:v1" \
-    --hostname="keycloak.ai-servicers.com" \
-    --hostname-admin="keycloak.ai-servicers.com" \
-    --proxy-headers=xforwarded \
-    --http-enabled=true \
-    --https-port=8443 \
-    --https-certificate-file=/opt/keycloak/conf/certs/keycloak-internal.crt \
-    --https-certificate-key-file=/opt/keycloak/conf/certs/keycloak-internal.key \
-    --hostname-strict=false
-
-# Connect Keycloak to traefik-net IMMEDIATELY for web access
-echo "Connecting Keycloak to traefik-net for web access..."
-docker network connect traefik-net "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to traefik-net"
-
-# Connect to keycloak-net for auth proxy services (OpenBao, Grafana, etc.)
-echo "Connecting Keycloak to keycloak-net for auth proxy services..."
-docker network connect keycloak-net "${KC_CONTAINER}" 2>/dev/null || echo "Already connected to keycloak-net"
-
-# Wait for Keycloak to be ready
-echo "Waiting for Keycloak to initialize with dual HTTPS support..."
-timeout=120
-counter=0
-# Simplified wait - just check if container is running
-while [ $counter -lt $timeout ]; do
-    if docker ps | grep -q "${KC_CONTAINER}"; then
-        # Container is running, give it a bit more time to fully initialize
-        echo "✔️ Keycloak container is running"
-        sleep 10
-        break
+# Check if networks exist
+for network in traefik-net keycloak-net postgres-net; do
+    if ! docker network inspect "$network" &>/dev/null; then
+        echo -e "${RED}❌ Network $network not found${NC}"
+        echo "Run: /home/administrator/projects/infrastructure/setup-networks.sh"
+        exit 1
     fi
-    echo "  - Waiting for Keycloak to start... ($counter/$timeout)"
-    sleep 2
-    ((counter++))
 done
+echo -e "${GREEN}✅ Required networks exist${NC}"
 
-if [ $counter -ge $timeout ]; then
-    echo "❌ ERROR: Keycloak failed to start within $timeout seconds"
-    docker logs "${KC_CONTAINER}" --tail 20
+# Validate docker-compose.yml syntax
+echo ""
+echo "✅ Validating docker-compose.yml..."
+if ! docker compose config > /dev/null 2>&1; then
+    echo -e "${RED}❌ docker-compose.yml validation failed${NC}"
+    docker compose config
     exit 1
 fi
+echo -e "${GREEN}✅ docker-compose.yml is valid${NC}"
 
-echo "✔️ Keycloak is ready with dual HTTPS support"
+# --- Create Docker Volumes ---
+echo ""
+echo "📦 Checking Docker volumes..."
 
-# Note: keycloak-postgres is already created on postgres-net only (see line 104)
-# This is just a safety check in case it was manually connected to traefik-net
-if docker inspect "${PG_CONTAINER}" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null | grep -q "traefik-net"; then
-  echo "Removing keycloak-postgres from traefik-net (should only be on postgres-net)..."
-  docker network disconnect traefik-net "${PG_CONTAINER}" 2>/dev/null || true
+for volume in keycloak-data keycloak-certs keycloak_pg_data; do
+    if ! docker volume inspect "$volume" &>/dev/null; then
+        echo "Creating volume: $volume"
+        docker volume create "$volume"
+    fi
+done
+echo -e "${GREEN}✅ Docker volumes ready${NC}"
+
+# --- Generate Self-Signed Certificates ---
+echo ""
+echo "🔐 Checking self-signed certificates..."
+
+# Check if certificates exist
+CERT_EXISTS=$(docker run --rm \
+    -v keycloak-certs:/certs \
+    --entrypoint="" \
+    alpine/openssl \
+    sh -c "test -f /certs/keycloak-internal.crt && echo 'yes' || echo 'no'")
+
+if [ "$CERT_EXISTS" = "no" ]; then
+    echo "Generating self-signed certificates..."
+    docker run --rm \
+        -v keycloak-certs:/certs \
+        --entrypoint="" \
+        alpine/openssl \
+        sh -c "
+            openssl genrsa -out /certs/keycloak-internal.key 2048
+            openssl req -new -x509 -key /certs/keycloak-internal.key \
+                -out /certs/keycloak-internal.crt -days 365 \
+                -subj '/CN=keycloak.linuxserver.lan/O=Internal/C=US' \
+                -addext 'subjectAltName=DNS:keycloak.linuxserver.lan,DNS:keycloak,IP:172.22.0.5,IP:192.168.1.13'
+            openssl pkcs12 -export -in /certs/keycloak-internal.crt \
+                -inkey /certs/keycloak-internal.key \
+                -out /certs/keycloak-internal.p12 \
+                -name keycloak-internal \
+                -passout pass:changeit
+            chmod 644 /certs/*
+        " >/dev/null 2>&1
+    echo -e "${GREEN}✅ Self-signed certificates generated${NC}"
+else
+    echo -e "${GREEN}✅ Self-signed certificates already exist${NC}"
 fi
 
-# ── Configure Realm for Mixed URL Strategy ──────────────────────────
-echo "=== Configuring Realm for Mixed Internal/External URLs ==="
+# --- Deployment ---
+echo ""
+echo "🚀 Deploying Keycloak services..."
+docker compose up -d --remove-orphans
 
-# Wait a bit more for Keycloak to fully initialize
+# --- Post-deployment Validation ---
+echo ""
+echo "⏳ Waiting for PostgreSQL to be ready..."
+timeout 60 bash -c 'until docker exec keycloak-postgres pg_isready -U keycloak -d keycloak 2>/dev/null; do sleep 2; done' || {
+    echo -e "${RED}❌ PostgreSQL failed to start${NC}"
+    docker logs keycloak-postgres --tail 30
+    exit 1
+}
+echo -e "${GREEN}✅ PostgreSQL is ready${NC}"
+
+echo "⏳ Waiting for Keycloak to start..."
 sleep 10
 
-# Get admin token for API configuration
-echo "Getting admin access token..."
+# Check if Keycloak is running
+if ! docker ps | grep -q "keycloak"; then
+    echo -e "${RED}❌ Keycloak container not running${NC}"
+    docker logs keycloak --tail 50
+    exit 1
+fi
+echo -e "${GREEN}✅ Keycloak container is running${NC}"
+
+# Wait for Keycloak to be fully initialized
+echo "🔍 Checking Keycloak health..."
+HEALTH_CHECK_ATTEMPTS=0
+MAX_ATTEMPTS=30
+
+while [ $HEALTH_CHECK_ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+    if docker logs keycloak 2>&1 | grep -q "Listening on:"; then
+        echo -e "${GREEN}✅ Keycloak is healthy${NC}"
+        break
+    fi
+    HEALTH_CHECK_ATTEMPTS=$((HEALTH_CHECK_ATTEMPTS + 1))
+    if [ $HEALTH_CHECK_ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+        echo -e "${RED}❌ Keycloak health check failed after $MAX_ATTEMPTS attempts${NC}"
+        docker logs keycloak --tail 30
+        exit 1
+    fi
+    echo "   Attempt $HEALTH_CHECK_ATTEMPTS/$MAX_ATTEMPTS..."
+    sleep 2
+done
+
+# Give it a few more seconds to be fully ready
+sleep 5
+
+# --- Configure Realm ---
+echo ""
+echo "⚙️  Configuring realm..."
+
+# Get admin token
 ADMIN_TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=${KEYCLOAK_ADMIN}" \
-  -d "password=${KEYCLOAK_ADMIN_PASSWORD}" \
-  -d "grant_type=password" \
-  -d "client_id=admin-cli" | jq -r '.access_token')
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "username=${KEYCLOAK_ADMIN}" \
+    -d "password=${KEYCLOAK_ADMIN_PASSWORD}" \
+    -d "grant_type=password" \
+    -d "client_id=admin-cli" 2>/dev/null | jq -r '.access_token' 2>/dev/null)
 
 if [ "$ADMIN_TOKEN" != "null" ] && [ -n "$ADMIN_TOKEN" ]; then
-  echo "✅ Admin token obtained"
-  
-  # Configure the realm to use external URLs for browser endpoints
-  echo "Configuring realm with external frontend URL..."
-  curl -s -X PUT "http://localhost:8080/admin/realms/master" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"frontendUrl\": \"https://keycloak.ai-servicers.com\",
-      \"adminUrl\": \"https://keycloak.ai-servicers.com\",
-      \"attributes\": {
-        \"frontendUrl\": \"https://keycloak.ai-servicers.com\",
-        \"adminUrl\": \"https://keycloak.ai-servicers.com\",
-        \"hostname-strict-backchannel\": \"false\",
-        \"hostname-strict\": \"false\"
-      }
-    }"
-  
-  echo "✅ Realm configured for mixed URL strategy"
+    echo -e "${GREEN}✅ Admin token obtained${NC}"
+
+    # Configure realm with external frontend URL
+    curl -s -X PUT "http://localhost:8080/admin/realms/master" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"frontendUrl\": \"https://${PUBLIC_HOSTNAME}\",
+            \"adminUrl\": \"https://${PUBLIC_HOSTNAME}\",
+            \"attributes\": {
+                \"frontendUrl\": \"https://${PUBLIC_HOSTNAME}\",
+                \"adminUrl\": \"https://${PUBLIC_HOSTNAME}\",
+                \"hostname-strict-backchannel\": \"false\",
+                \"hostname-strict\": \"false\"
+            }
+        }" >/dev/null 2>&1
+
+    echo -e "${GREEN}✅ Realm configured${NC}"
 else
-  echo "⚠️  Could not obtain admin token - realm configuration skipped"
+    echo -e "${YELLOW}⚠️  Could not obtain admin token - realm configuration skipped${NC}"
 fi
 
-# ── Verification ──────────────────────────────────────────────
-echo
-echo "=== Verifying Dual HTTPS Configuration ==="
+# --- Verification ---
+echo ""
+echo "🔍 Verifying deployment..."
 
-echo "Testing external HTTPS access..."
-sleep 5
-if curl -s -k "https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "${PUBLIC_HOSTNAME}"; then
-    echo "✅ External HTTPS: Working"
+sleep 3
+
+# Test external HTTPS
+if curl -s -k "https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "${PUBLIC_HOSTNAME}" 2>/dev/null; then
+    echo -e "${GREEN}✅ External HTTPS working${NC}"
 else
-    echo "⚠️  External HTTPS: May need a moment to fully initialize"
+    echo -e "${YELLOW}⚠️  External HTTPS may need a moment to initialize${NC}"
 fi
 
-echo "Testing internal HTTPS access..."
-if curl -s -k "https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "keycloak"; then
-    echo "✅ Internal HTTPS: Working"
+# Test internal HTTPS
+if curl -s -k "https://keycloak.linuxserver.lan:8443/realms/master/.well-known/openid-configuration" | jq -r '.issuer' | grep -q "keycloak" 2>/dev/null; then
+    echo -e "${GREEN}✅ Internal HTTPS working${NC}"
 else
-    echo "⚠️  Internal HTTPS: May need a moment to fully initialize"
+    echo -e "${YELLOW}⚠️  Internal HTTPS may need a moment to initialize${NC}"
 fi
 
-echo
-echo "🎉 Keycloak (WITHOUT LDAP) is ready!"
+# --- Summary ---
 echo ""
-echo "📍 Access Points:"
-echo "   • External HTTPS: https://${PUBLIC_HOSTNAME}/admin/ (browsers via Traefik)"
-echo "   • Internal HTTPS: https://keycloak.linuxserver.lan:8443/admin/ (containers direct)"
+echo "=========================================="
+echo "✅ Keycloak Deployment Summary"
+echo "=========================================="
+echo "Services:"
+echo "  - keycloak (${KC_IMAGE:-quay.io/keycloak/keycloak:25.0})"
+echo "  - keycloak-postgres (${PG_IMAGE:-postgres:15})"
 echo ""
-echo "🔐 Admin Credentials:"
-echo "   • Username: ${KEYCLOAK_ADMIN}"
-echo "   • Password: ${KEYCLOAK_ADMIN_PASSWORD}"
+echo "Networks:"
+echo "  - traefik-net (web access)"
+echo "  - keycloak-net (auth proxy services)"
+echo "  - postgres-net (database access)"
 echo ""
-echo "👤 User Management:"
-echo "   • All users are now LOCAL to Keycloak (no LDAP)"
-echo "   • Create users directly in Keycloak admin console"
-echo "   • No federation complications!"
+echo "Access Points:"
+echo "  - External: https://${PUBLIC_HOSTNAME}/admin/"
+echo "  - Internal: https://keycloak.linuxserver.lan:8443/admin/"
 echo ""
-echo "🔗 OIDC Configuration for Applications:"
-echo "   • Issuer: https://keycloak.ai-servicers.com/realms/master"
-echo "   • Discovery URL: https://keycloak.ai-servicers.com/realms/master/.well-known/openid-configuration"
+echo "Admin Credentials:"
+echo "  - Username: ${KEYCLOAK_ADMIN}"
+echo "  - Password: ${KEYCLOAK_ADMIN_PASSWORD}"
 echo ""
-echo "📋 Next Steps:"
-echo "   1. Create your local user in Keycloak admin"
-echo "   2. Create the open-webui client"
-echo "   3. Configure Open WebUI with OIDC"
+echo "OIDC Configuration:"
+echo "  - Issuer: https://${PUBLIC_HOSTNAME}/realms/master"
+echo "  - Discovery: https://${PUBLIC_HOSTNAME}/realms/master/.well-known/openid-configuration"
+echo ""
+echo "=========================================="
+echo ""
+echo "📊 View logs:"
+echo "   docker logs keycloak -f"
+echo "   docker logs keycloak-postgres -f"
+echo ""
+echo "✅ Deployment complete!"
