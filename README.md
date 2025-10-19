@@ -55,7 +55,7 @@ curl -s https://keycloak.ai-servicers.com/realms/master/.well-known/openid-confi
 
 ## Secrets
 
-**Location**: `/home/administrator/secrets/keycloak.env`
+**Location**: `$HOME/projects/secrets/keycloak.env`
 
 **Required Variables**:
 ```bash
@@ -270,7 +270,7 @@ docker compose up -d
 ### Critical Data
 - PostgreSQL database (`keycloak_pg_data` volume)
 - Keycloak configuration (`keycloak_data` volume)
-- Environment variables (`/home/administrator/secrets/keycloak.env`)
+- Environment variables (`$HOME/projects/secrets/keycloak.env`)
 
 ### Backup Command
 

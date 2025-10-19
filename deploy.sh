@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Environment file
-ENV_FILE="/home/administrator/secrets/keycloak.env"
+ENV_FILE="$HOME/projects/secrets/keycloak.env"
 
 # Color codes
 RED='\033[0;31m'

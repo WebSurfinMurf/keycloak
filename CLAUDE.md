@@ -17,24 +17,24 @@ _This section is updated by Claude during each session_
 - Fixed network configuration for proper database connectivity
 - Updated deploy.sh to handle dual-network requirements:
   - Starts on `postgres-net` first (for database access)
-  - Then connects to `traefik-proxy` (for web access)
+  - Then connects to `traefik-net` (for web access)
 - All paths updated to use administrator's directory structure
 - Successfully tested and verified working
 
 ### Important Network Configuration
 - **Keycloak container**: Must be on BOTH networks
   - `postgres-net`: To reach keycloak-postgres database
-  - `traefik-proxy`: For web access via Traefik
+  - `traefik-net`: For web access via Traefik
 - **keycloak-postgres**: Only on `postgres-net`
 
 ## Network Architecture
 - **Primary Network**: `postgres-net` (started on this for DB access)
-- **Secondary Network**: `traefik-proxy` (connected after start for web access)
+- **Secondary Network**: `traefik-net` (connected after start for web access)
 - **Database**: `keycloak-postgres` on `postgres-net` only
 
 ## Important Files & Paths
 - **Deploy Script**: `/home/administrator/projects/keycloak/deploy.sh`
-- **Secrets**: `/home/administrator/projects/secrets/keycloak.env`
+- **Secrets**: `$HOME/projects/secrets/keycloak.env`
 - **Data Volume**: `keycloak_data` (Docker volume)
 - **Database Volume**: `keycloak_pg_data` (Docker volume)
 - **Certs Volume**: `keycloak_data_certs` (self-signed for internal HTTPS)
@@ -81,7 +81,7 @@ docker exec keycloak ping -c 1 keycloak-postgres
 
 # Verify network configuration
 docker inspect keycloak --format '{{range $net, $conf := .NetworkSettings.Networks}}{{$net}} {{end}}'
-# Should show: postgres-net traefik-proxy
+# Should show: postgres-net traefik-net
 
 # Access database via PostgreSQL client
 psql -h localhost -p 5432 -U keycloak -d keycloak
@@ -90,7 +90,7 @@ psql -h localhost -p 5432 -U keycloak -d keycloak
 
 ## Troubleshooting
 1. **Database connection failed**: Ensure Keycloak is on postgres-net
-2. **Not accessible via browser**: Ensure Keycloak is on traefik-proxy
+2. **Not accessible via browser**: Ensure Keycloak is on traefik-net
 3. **Both issues**: Check that deploy.sh creates container on postgres-net first
 
 ## OIDC Configuration for Applications
